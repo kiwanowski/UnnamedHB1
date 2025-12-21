@@ -69,7 +69,7 @@ class AMFConverter:
         print(f"AMF Header:")
         print(f"  Used textures: {header.used_textures}")
         print(f"  Grid size: {header.x} x {header.z}")
-        print(f"  Bounds: minX={header.bounds.minX}, minZ={header.bounds. minZ}, maxX={header. bounds.maxX}, maxZ={header.bounds.maxZ}")
+        print(f"  Bounds: minX={header.bounds.minX}, minZ={header.bounds.minZ}, maxX={header.bounds.maxX}, maxZ={header.bounds.maxZ}")
         
         # Parse texture names (8 bytes each)
         offset = 0x18  # After header (24 bytes)
@@ -174,25 +174,25 @@ class AMFConverter:
                 # Convert vertices to world coordinates
                 v0_idx = vertex_index
                 self.vertices.append((convert_psx_coord(v0[0]), convert_psx_coord(v0[1]), convert_psx_coord(v0[2])))
-                self. vertices.append((convert_psx_coord(v1[0]), convert_psx_coord(v1[1]), convert_psx_coord(v1[2])))
+                self.vertices.append((convert_psx_coord(v1[0]), convert_psx_coord(v1[1]), convert_psx_coord(v1[2])))
                 self.vertices.append((convert_psx_coord(v2[0]), convert_psx_coord(v2[1]), convert_psx_coord(v2[2])))
                 self.vertices.append((convert_psx_coord(v3[0]), convert_psx_coord(v3[1]), convert_psx_coord(v3[2])))
                 
                 # Convert normals
                 self.normals.append(normalize_vector(n0[0], n0[1], n0[2]))
-                self.normals. append(normalize_vector(n1[0], n1[1], n1[2]))
+                self.normals.append(normalize_vector(n1[0], n1[1], n1[2]))
                 self.normals.append(normalize_vector(n2[0], n2[1], n2[2]))
-                self.normals. append(normalize_vector(n3[0], n3[1], n3[2]))
+                self.normals.append(normalize_vector(n3[0], n3[1], n3[2]))
                 
                 # Store colors (normalized to 0-1 range)
                 self.colors.append((c0[0]/255.0, c0[1]/255.0, c0[2]/255.0))
-                self.colors. append((c1[0]/255.0, c1[1]/255.0, c1[2]/255.0))
+                self.colors.append((c1[0]/255.0, c1[1]/255.0, c1[2]/255.0))
                 self.colors.append((c2[0]/255.0, c2[1]/255.0, c2[2]/255.0))
                 self.colors.append((c3[0]/255.0, c3[1]/255.0, c3[2]/255.0))
                 
                 # Create two triangles from quad (0-1-2 and 0-2-3)
                 self.faces.append((v0_idx, v0_idx+1, v0_idx+2))
-                self.faces.append((v0_idx, v0_idx+2, v0_idx+3))
+                self.faces.append((v0_idx+1, v0_idx+2, v0_idx+3))
                 
                 vertex_index += 4
             
@@ -243,7 +243,7 @@ def main():
     
     # Read AMF file
     if input_file == '-':
-        data = sys.stdin.buffer. read()
+        data = sys.stdin.buffer.read()
     else:
         with open(input_file, 'rb') as f:
             data = f.read()
