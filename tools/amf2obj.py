@@ -191,8 +191,8 @@ class AMFConverter:
                 self.colors.append((c3[0]/255.0, c3[1]/255.0, c3[2]/255.0))
                 
                 # Create two triangles from quad (0-1-2 and 0-2-3)
-                self.faces.append((v0_idx, v0_idx+1, v0_idx+2))
-                self.faces.append((v0_idx+1, v0_idx+2, v0_idx+3))
+                self.faces.append((v0_idx, v0_idx+1, v0_idx+2, v0_idx+3))
+                #self.faces.append((v0_idx+1, v0_idx+2, v0_idx+3))
                 
                 vertex_index += 4
             
@@ -227,9 +227,9 @@ class AMFConverter:
             f.write("\n")
             for face in self.faces:
                 if self.normals:
-                    f.write(f"f {face[0]}//{face[0]} {face[1]}//{face[1]} {face[2]}//{face[2]}\n")
+                    f.write(f"f {face[0]}//{face[0]} {face[1]}//{face[1]} {face[3]}//{face[3]} {face[2]}//{face[2]}\n")
                 else:
-                    f. write(f"f {face[0]} {face[1]} {face[2]}\n")
+                    f. write(f"f {face[0]} {face[1]} {face[3]} {face[2]}\n")
         
         print(f"\nOBJ file written to:  {output_path}")
 
