@@ -11,7 +11,7 @@
 			"displayName":   "Release configuration",
 			"description":   "Use this preset to build the project using PSn00bSDK.",
 			"generator":     "MinGW Makefiles",
-			"toolchainFile": "$env{PSN00BSDK_LIBS}/cmake/sdk.cmake",
+			"toolchainFile": "/usr/local/lib/libpsn00b/cmake/sdk.cmake",
 			"binaryDir":     "${sourceDir}/build",
 			"cacheVariables": {
 			  "CMAKE_BUILD_TYPE": "Release",
