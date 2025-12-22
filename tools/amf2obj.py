@@ -1,265 +1,492 @@
 #!/usr/bin/env python3
 """
-AMF to OBJ Converter - Working version for G4 polygons
-Converts PlayStation 1 AMF model files to Wavefront OBJ format
+AMF to OBJ Converter for UnnamedHB1 PlayStation 1 Model Format
+
+This script converts AMF (Animated Model Format) files from the UnnamedHB1
+PS1 homebrew game to Wavefront OBJ format. 
+
+AMF format specification derived from:
+https://github.com/achrostel/UnnamedHB1
+
+Usage:
+    python amf2obj. py input.amf [output.obj]
 """
 
 import struct
 import sys
+import os
 from dataclasses import dataclass
+from typing import List, Tuple, Optional
+
+
+@dataclass
+class SVECTOR:
+    """Short vector (8 bytes) - used for vertices and normals"""
+    vx: int  # int16_t
+    vy: int  # int16_t
+    vz:  int  # int16_t
+    pad:  int  # int16_t (flags:  depth check type, subdiv depth, culling mode)
+
+    @classmethod
+    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'SVECTOR': 
+        vx, vy, vz, pad = struct. unpack_from('<hhhh', data, offset)
+        return cls(vx, vy, vz, pad)
+
+    def to_float(self, scale: float = 1.0 / 4096.0) -> Tuple[float, float, float]:
+        """Convert fixed-point to floating point coordinates"""
+        return (self.vx * scale, self. vy * scale, self.vz * scale)
+
+
+@dataclass
+class CVECTOR:
+    """Color vector (4 bytes)"""
+    r:  int  # uint8_t
+    g: int  # uint8_t
+    b: int  # uint8_t
+    cd: int  # uint8_t (code/alpha)
+
+    @classmethod
+    def from_bytes(cls, data: bytes, offset:  int = 0) -> 'CVECTOR':
+        r, g, b, cd = struct.unpack_from('<BBBB', data, offset)
+        return cls(r, g, b, cd)
+
 
 @dataclass
 class WorldBounds:
-    minX: int
-    minZ: int
-    maxX: int
-    maxZ: int
+    """World bounding box (16 bytes)"""
+    minX: int  # int32_t
+    minZ: int  # int32_t
+    maxX: int  # int32_t
+    maxZ:  int  # int32_t
+
+    @classmethod
+    def from_bytes(cls, data: bytes, offset: int = 0) -> 'WorldBounds': 
+        minX, minZ, maxX, maxZ = struct. unpack_from('<iiii', data, offset)
+        return cls(minX, minZ, maxX, maxZ)
+
 
 @dataclass
 class AMFHeader:
-    used_textures:  int
-    x:  int
-    z: int
+    """AMF file header (24 bytes)"""
+    used_textures: int  # uint32_t (highest bit for Texture* already set)
+    x:  int  # uint16_t (chunk count in X)
+    z: int  # uint16_t (chunk count in Z)
     bounds: WorldBounds
 
-def parse_amf_header(data):
-    """Parse AMF file header"""
-    used_textures = struct.unpack_from('<I', data, 0)[0]
-    x, z = struct.unpack_from('<HH', data, 4)
-    minX, minZ, maxX, maxZ = struct.unpack_from('<iiii', data, 8)
-    
-    bounds = WorldBounds(minX, minZ, maxX, maxZ)
-    header = AMFHeader(used_textures, x, z, bounds)
-    
-    return header
+    @classmethod
+    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'AMFHeader':
+        used_textures, x, z = struct.unpack_from('<IHH', data, offset)
+        bounds = WorldBounds. from_bytes(data, offset + 8)
+        return cls(used_textures & 0x7FFFFFFF, x, z, bounds)
 
-def read_svector(data, offset):
-    """Read a PSX SVECTOR (4 int16 values:  x, y, z, pad)"""
-    x, y, z, pad = struct.unpack_from('<hhhh', data, offset)
-    return (x, y, z, pad), offset + 8
 
-def read_cvector(data, offset):
-    """Read a PSX CVECTOR (4 uint8 values: r, g, b, pad)"""
-    r, g, b, pad = struct.unpack_from('<BBBB', data, offset)
-    return (r, g, b, pad), offset + 4
+@dataclass
+class ChunkHeader:
+    """Chunk header with polygon counts (16 bytes for counts)"""
+    F4_amount: int   # uint16_t
+    G4_amount: int   # uint16_t
+    FT4_amount: int  # uint16_t
+    GT4_amount: int  # uint16_t
+    F3_amount: int   # uint16_t
+    G3_amount: int   # uint16_t
+    FT3_amount:  int  # uint16_t
+    GT3_amount: int  # uint16_t
 
-def convert_psx_coord(value):
-    """Convert PSX coordinate to float"""
-    return value / 256.0
+    @classmethod
+    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'ChunkHeader':
+        counts = struct.unpack_from('<HHHHHHHH', data, offset)
+        return cls(*counts)
 
-def normalize_vector(x, y, z):
-    """Normalize a 3D vector"""
-    length = (x*x + y*y + z*z) ** 0.5
-    if length > 0:
-        return (x/length, y/length, z/length)
-    return (0, 0, 1)
 
-class AMFConverter:
-    def __init__(self, data):
+# Structure sizes based on PSn00bSDK and UnnamedHB1 definitions
+SVECTOR_SIZE = 8
+CVECTOR_SIZE = 4
+POINTER_SIZE = 4
+
+# POLY_* GPU primitive sizes (with 4-byte tag included)
+# From PSn00bSDK psxgpu.h - each has a uint32_t tag prefix
+POLY_F3_SIZE = 4 + 16    # tag + (r,g,b,code + 3 vertices) = 20
+POLY_F4_SIZE = 4 + 20    # tag + (r,g,b,code + 4 vertices) = 24
+POLY_FT3_SIZE = 4 + 28   # tag + color,code + 3*(xy + uv) + clut,tpage,pad = 32
+POLY_FT4_SIZE = 4 + 36   # tag + color,code + 4*(xy + uv) + clut,tpage,pads = 40
+POLY_G3_SIZE = 4 + 24    # tag + 3*(color + xy) = 28
+POLY_G4_SIZE = 4 + 32    # tag + 4*(color + xy) = 36
+POLY_GT3_SIZE = 4 + 36   # tag + 3*(color + xy + uv) + clut,tpage,pad = 40
+POLY_GT4_SIZE = 4 + 48   # tag + 4*(color + xy + uv) + clut,tpage,pads = 52
+
+# PF3: 3 SVECTOR (vertices) + 1 SVECTOR (normal) + POLY_F3
+# = 24 + 8 + 20 = 52
+PF3_SIZE = 3 * SVECTOR_SIZE + 1 * SVECTOR_SIZE + POLY_F3_SIZE
+
+# PF4: 4 SVECTOR (vertices) + 1 SVECTOR (normal) + POLY_F4
+# = 32 + 8 + 24 = 64
+PF4_SIZE = 4 * SVECTOR_SIZE + 1 * SVECTOR_SIZE + POLY_F4_SIZE
+
+# PFT3: 3 SVECTOR (vertices) + 1 SVECTOR (normal) + Texture* + POLY_FT3
+# = 24 + 8 + 4 + 32 = 68
+PFT3_SIZE = 3 * SVECTOR_SIZE + 1 * SVECTOR_SIZE + POINTER_SIZE + POLY_FT3_SIZE
+
+# PFT4: 4 SVECTOR (vertices) + 1 SVECTOR (normal) + Texture* + POLY_FT4
+# = 32 + 8 + 4 + 40 = 84
+PFT4_SIZE = 4 * SVECTOR_SIZE + 1 * SVECTOR_SIZE + POINTER_SIZE + POLY_FT4_SIZE
+
+# PG3: 3 SVECTOR (vertices) + 3 SVECTOR (normals) + POLY_G3
+# = 24 + 24 + 28 = 76
+PG3_SIZE = 3 * SVECTOR_SIZE + 3 * SVECTOR_SIZE + POLY_G3_SIZE
+
+# PG4: 4 SVECTOR (vertices) + 4 SVECTOR (normals) + POLY_G4
+# = 32 + 32 + 36 = 100
+PG4_SIZE = 4 * SVECTOR_SIZE + 4 * SVECTOR_SIZE + POLY_G4_SIZE
+
+# PGT3: 3 SVECTOR (vertices) + 3 SVECTOR (normals) + Texture* + POLY_GT3
+# = 24 + 24 + 4 + 40 = 92
+PGT3_SIZE = 3 * SVECTOR_SIZE + 3 * SVECTOR_SIZE + POINTER_SIZE + POLY_GT3_SIZE
+
+# PGT4: 4 SVECTOR (vertices) + 4 SVECTOR (normals) + 4 CVECTOR (colors) + Texture* + POLY_GT4
+# = 32 + 32 + 16 + 4 + 52 = 136
+PGT4_SIZE = 4 * SVECTOR_SIZE + 4 * SVECTOR_SIZE + 4 * CVECTOR_SIZE + POINTER_SIZE + POLY_GT4_SIZE
+
+
+class AMFParser:
+    """Parser for AMF model files"""
+
+    def __init__(self, data: bytes):
         self.data = data
-        self.vertices = []
-        self.normals = []
-        self.colors = []
-        self.faces = []
-        
+        self.header:  Optional[AMFHeader] = None
+        self.texture_names: List[str] = []
+        self.vertices: List[Tuple[float, float, float]] = []
+        self.normals: List[Tuple[float, float, float]] = []
+        self.faces: List[List[int]] = []  # Each face is a list of vertex indices
+        self.face_normals: List[List[int]] = []  # Normal indices per face
+
     def parse(self):
-        """Parse AMF file"""
+        """Parse the AMF file"""
         # Parse header
-        header = parse_amf_header(self.data)
+        self.header = AMFHeader.from_bytes(self.data, 0)
         print(f"AMF Header:")
-        print(f"  Used textures: {header.used_textures}")
-        print(f"  Grid size: {header.x} x {header.z}")
-        print(f"  Bounds: minX={header.bounds.minX}, minZ={header.bounds.minZ}, maxX={header.bounds.maxX}, maxZ={header.bounds.maxZ}")
-        
+        print(f"  Textures: {self. header.used_textures}")
+        print(f"  Chunks: {self.header.x} x {self.header.z}")
+        print(f"  Bounds: ({self.header.bounds.minX}, {self.header.bounds.minZ}) to "
+              f"({self.header.bounds.maxX}, {self.header.bounds.maxZ})")
+
         # Parse texture names (8 bytes each)
-        offset = 0x18  # After header (24 bytes)
-        texture_names = []
-        for i in range(header.used_textures):
-            name_bytes = self.data[offset + i*8 : offset + i*8 + 8]
-            name = name_bytes.decode('ascii', errors='ignore').rstrip('\x00')
-            texture_names.append(name)
-        print(f"  Texture names:  {texture_names}")
-        
-        # Chunk pointer table starts after texture names
-        chunk_table_offset = offset + header.used_textures * 8
-        chunk_count = header.x * header.z
-        print(f"  Chunk count: {chunk_count}")
-        print(f"  Chunk table offset: 0x{chunk_table_offset:04x}")
-        
-        # The chunk data starts after the chunk pointer table
-        chunk_data_base = chunk_table_offset + chunk_count * 4
-        print(f"  Chunk data base: 0x{chunk_data_base:04x}")
-        
-        vertex_index = 1  # OBJ uses 1-based indexing
-        
-        # Process each chunk
+        offset = 8 + 16  # Header size + WorldBounds size
+        for i in range(self.header.used_textures):
+            name_bytes = self.data[offset:offset + 8]
+            name = name_bytes. rstrip(b'\x00').decode('ascii', errors='replace')
+            self.texture_names.append(name)
+            offset += 8
+
+        print(f"  Texture names:  {self.texture_names}")
+
+        # Parse chunk table and chunks
+        chunk_count = self.header. x * self.header.z
+        chunk_table_offset = offset
+
+        # The chunk table contains relative offsets/info for each chunk
+        # Based on the C code, the actual chunk data starts after the table
+        chunk_data_offset = chunk_table_offset + chunk_count * 4
+
         for chunk_idx in range(chunk_count):
-            # First chunk is right after the pointer table
-            chunk_pos = chunk_data_base
-            
-            if chunk_pos + 48 > len(self.data):
-                print(f"  Chunk {chunk_idx} exceeds file size, skipping")
-                break
-            
-            # Read polygon type counts (16 bytes = 8 uint16)
-            counts_offset = chunk_pos
-            F4, G4, FT4, GT4, F3, G3, FT3, GT3 = struct. unpack_from('<8H', self.data, counts_offset)
-            
-            print(f"\nChunk {chunk_idx}:")
-            print(f"  F4={F4}, G4={G4}, FT4={FT4}, GT4={GT4}")
-            print(f"  F3={F3}, G3={G3}, FT3={FT3}, GT3={GT3}")
-            
-            # Polygon data starts after the chunk header
-            # Header = 8 counts (16 bytes) + 8 pointers (32 bytes) = 48 bytes
-            poly_data_offset = counts_offset + 48
-            
-            print(f"  Polygon data starts at offset: 0x{poly_data_offset:04x}")
-            
-            # PG4 structure (from model.h):
-            # typedef struct {
-            #     SVECTOR v0, v1, v2, v3;     // 4 * 8 = 32 bytes
-            #     SVECTOR n0, n1, n2, n3;     // 4 * 8 = 32 bytes  
-            #     CVECTOR c0, c1, c2, c3;     // 4 * 4 = 16 bytes
-            #     POLY_G4 pol;                // ~20 bytes
-            # } PG4;
-            # Total ≈ 100 bytes per PG4
-            
-            # Parse F4 polygons (flat-shaded quads)
-            PF4_SIZE = 32 + 20  # 4 vertices + POLY_F4
-            for i in range(F4):
-                if poly_data_offset + PF4_SIZE > len(self.data):
-                    break
-                poly_data_offset += PF4_SIZE
-            
-            # Parse G4 polygons (Gouraud-shaded quads)
-            PG4_SIZE = 32 + 32 + 16 + 20  # vertices + normals + colors + POLY_G4
-            print(f"  Parsing {G4} G4 polygons...")
-            
-            for i in range(G4):
-                if poly_data_offset + PG4_SIZE > len(self.data):
-                    print(f"    Polygon {i}:  Not enough data (need {PG4_SIZE} bytes, have {len(self. data) - poly_data_offset})")
-                    break
-                
-                start_offset = poly_data_offset
-                
-                # Read 4 vertices (SVECTOR each = 8 bytes)
-                v0, poly_data_offset = read_svector(self.data, poly_data_offset)
-                v1, poly_data_offset = read_svector(self.data, poly_data_offset)
-                v2, poly_data_offset = read_svector(self.data, poly_data_offset)
-                v3, poly_data_offset = read_svector(self.data, poly_data_offset)
-                
-                # Read 4 normals (SVECTOR each = 8 bytes)
-                n0, poly_data_offset = read_svector(self.data, poly_data_offset)
-                n1, poly_data_offset = read_svector(self.data, poly_data_offset)
-                n2, poly_data_offset = read_svector(self.data, poly_data_offset)
-                n3, poly_data_offset = read_svector(self. data, poly_data_offset)
-                
-                # Read 4 colors (CVECTOR each = 4 bytes)
-                c0, poly_data_offset = read_cvector(self.data, poly_data_offset)
-                c1, poly_data_offset = read_cvector(self.data, poly_data_offset)
-                c2, poly_data_offset = read_cvector(self.data, poly_data_offset)
-                c3, poly_data_offset = read_cvector(self.data, poly_data_offset)
-                
-                # Skip POLY_G4 structure (~20 bytes)
-                poly_data_offset += 20
-                
-                if i < 3:  # Debug first few polygons
-                    print(f"    Polygon {i}:")
-                    print(f"      v0=({v0[0]}, {v0[1]}, {v0[2]})")
-                    print(f"      v1=({v1[0]}, {v1[1]}, {v1[2]})")
-                    print(f"      v2=({v2[0]}, {v2[1]}, {v2[2]})")
-                    print(f"      v3=({v3[0]}, {v3[1]}, {v3[2]})")
-                    print(f"      c0=({c0[0]}, {c0[1]}, {c0[2]})")
-                
-                # Convert vertices to world coordinates
-                v0_idx = vertex_index
-                self.vertices.append((convert_psx_coord(v0[0]), convert_psx_coord(v0[1]), convert_psx_coord(v0[2])))
-                self.vertices.append((convert_psx_coord(v1[0]), convert_psx_coord(v1[1]), convert_psx_coord(v1[2])))
-                self.vertices.append((convert_psx_coord(v2[0]), convert_psx_coord(v2[1]), convert_psx_coord(v2[2])))
-                self.vertices.append((convert_psx_coord(v3[0]), convert_psx_coord(v3[1]), convert_psx_coord(v3[2])))
-                
-                # Convert normals
-                self.normals.append(normalize_vector(n0[0], n0[1], n0[2]))
-                self.normals.append(normalize_vector(n1[0], n1[1], n1[2]))
-                self.normals.append(normalize_vector(n2[0], n2[1], n2[2]))
-                self.normals.append(normalize_vector(n3[0], n3[1], n3[2]))
-                
-                # Store colors (normalized to 0-1 range)
-                self.colors.append((c0[0]/255.0, c0[1]/255.0, c0[2]/255.0))
-                self.colors.append((c1[0]/255.0, c1[1]/255.0, c1[2]/255.0))
-                self.colors.append((c2[0]/255.0, c2[1]/255.0, c2[2]/255.0))
-                self.colors.append((c3[0]/255.0, c3[1]/255.0, c3[2]/255.0))
-                
-                # Create two triangles from quad (0-1-2 and 0-2-3)
-                self.faces.append((v0_idx, v0_idx+1, v0_idx+2, v0_idx+3))
-                #self.faces.append((v0_idx+1, v0_idx+2, v0_idx+3))
-                
-                vertex_index += 4
-            
-            print(f"  Processed {G4} G4 polygons")
-            
-            # Parse other polygon types if needed... 
-            # (FT4, GT4, F3, G3, FT3, GT3)
-        
-        print(f"\nExtracted:")
-        print(f"  {len(self.vertices)} vertices")
-        print(f"  {len(self.normals)} normals")
-        print(f"  {len(self.faces)} faces")
-    
-    def write_obj(self, output_path):
-        """Write OBJ file"""
-        with open(output_path, 'w') as f:
-            f.write("# AMF to OBJ conversion\n")
+            self._parse_chunk(chunk_idx, chunk_data_offset)
+            # Calculate offset for next chunk based on current chunk's content
+            chunk_header = ChunkHeader.from_bytes(self. data, chunk_data_offset)
+            chunk_size = 16 + 32  # header (16) + 8 pointers (32)
+            chunk_size += chunk_header. F4_amount * PF4_SIZE
+            chunk_size += chunk_header.G4_amount * PG4_SIZE
+            chunk_size += chunk_header.FT4_amount * PFT4_SIZE
+            chunk_size += chunk_header.GT4_amount * PGT4_SIZE
+            chunk_size += chunk_header.F3_amount * PF3_SIZE
+            chunk_size += chunk_header.G3_amount * PG3_SIZE
+            chunk_size += chunk_header.FT3_amount * PFT3_SIZE
+            chunk_size += chunk_header.GT3_amount * PGT3_SIZE
+            chunk_data_offset += chunk_size
+
+    def _parse_chunk(self, chunk_idx: int, offset: int):
+        """Parse a single chunk"""
+        # Read chunk header (first 16 bytes for counts, then 32 bytes for pointers which we skip)
+        chunk_header = ChunkHeader.from_bytes(self. data, offset)
+
+        print(f"\nChunk {chunk_idx}:")
+        print(f"  F4: {chunk_header.F4_amount}, G4: {chunk_header.G4_amount}")
+        print(f"  FT4: {chunk_header.FT4_amount}, GT4: {chunk_header. GT4_amount}")
+        print(f"  F3: {chunk_header. F3_amount}, G3: {chunk_header.G3_amount}")
+        print(f"  FT3: {chunk_header.FT3_amount}, GT3: {chunk_header.GT3_amount}")
+
+        # Skip the 8 pointers (32 bytes) that are set at runtime
+        poly_offset = offset + 16 + 32  # Header (16) + 8 pointers (32)
+
+        # Parse each polygon type in order (matching C code)
+        poly_offset = self._parse_f4_polys(poly_offset, chunk_header. F4_amount)
+        poly_offset = self._parse_g4_polys(poly_offset, chunk_header.G4_amount)
+        poly_offset = self._parse_ft4_polys(poly_offset, chunk_header.FT4_amount)
+        poly_offset = self._parse_gt4_polys(poly_offset, chunk_header.GT4_amount)
+        poly_offset = self._parse_f3_polys(poly_offset, chunk_header.F3_amount)
+        poly_offset = self._parse_g3_polys(poly_offset, chunk_header.G3_amount)
+        poly_offset = self._parse_ft3_polys(poly_offset, chunk_header. FT3_amount)
+        poly_offset = self._parse_gt3_polys(poly_offset, chunk_header. GT3_amount)
+
+    def _add_vertex(self, sv: SVECTOR) -> int:
+        """Add a vertex and return its 1-based index (for OBJ format)"""
+        self.vertices.append(sv.to_float())
+        return len(self.vertices)
+
+    def _add_normal(self, sv: SVECTOR) -> int:
+        """Add a normal and return its 1-based index (for OBJ format)"""
+        self.normals.append(sv.to_float())
+        return len(self.normals)
+
+    def _parse_f4_polys(self, offset: int, count:  int) -> int:
+        """Parse flat-shaded quads (PF4)"""
+        for _ in range(count):
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
+            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            n = SVECTOR.from_bytes(self.data, offset + 32)
+
+            # Add vertices
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            idx3 = self._add_vertex(v3)
+            n_idx = self._add_normal(n)
+
+            # Add quad as two triangles (PS1 quads are v0-v1-v2-v3 in Z pattern)
+            self.faces.append([idx0, idx1, idx2])
+            self.faces.append([idx1, idx3, idx2])
+            self.face_normals.append([n_idx, n_idx, n_idx])
+            self.face_normals.append([n_idx, n_idx, n_idx])
+
+            offset += PF4_SIZE
+        return offset
+
+    def _parse_g4_polys(self, offset: int, count: int) -> int:
+        """Parse gouraud-shaded quads (PG4)"""
+        for _ in range(count):
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
+            v2 = SVECTOR.from_bytes(self. data, offset + 16)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
+            n0 = SVECTOR.from_bytes(self.data, offset + 32)
+            n1 = SVECTOR.from_bytes(self. data, offset + 40)
+            n2 = SVECTOR.from_bytes(self. data, offset + 48)
+            n3 = SVECTOR.from_bytes(self.data, offset + 56)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            idx3 = self._add_vertex(v3)
+            n_idx0 = self._add_normal(n0)
+            n_idx1 = self._add_normal(n1)
+            n_idx2 = self._add_normal(n2)
+            n_idx3 = self._add_normal(n3)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.faces. append([idx1, idx3, idx2])
+            self.face_normals. append([n_idx0, n_idx1, n_idx2])
+            self.face_normals. append([n_idx1, n_idx3, n_idx2])
+
+            offset += PG4_SIZE
+        return offset
+
+    def _parse_ft4_polys(self, offset: int, count: int) -> int:
+        """Parse flat-shaded textured quads (PFT4)"""
+        for _ in range(count):
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
+            v2 = SVECTOR. from_bytes(self.data, offset + 16)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
+            n = SVECTOR.from_bytes(self.data, offset + 32)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            idx3 = self._add_vertex(v3)
+            n_idx = self._add_normal(n)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.faces. append([idx1, idx3, idx2])
+            self.face_normals. append([n_idx, n_idx, n_idx])
+            self.face_normals.append([n_idx, n_idx, n_idx])
+
+            offset += PFT4_SIZE
+        return offset
+
+    def _parse_gt4_polys(self, offset: int, count: int) -> int:
+        """Parse gouraud-shaded textured quads (PGT4)"""
+        for _ in range(count):
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
+            v2 = SVECTOR.from_bytes(self. data, offset + 16)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
+            n0 = SVECTOR. from_bytes(self.data, offset + 32)
+            n1 = SVECTOR.from_bytes(self.data, offset + 40)
+            n2 = SVECTOR.from_bytes(self.data, offset + 48)
+            n3 = SVECTOR.from_bytes(self. data, offset + 56)
+            # Skip 4 CVECTORs (16 bytes) and texture pointer (4 bytes)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            idx3 = self._add_vertex(v3)
+            n_idx0 = self._add_normal(n0)
+            n_idx1 = self._add_normal(n1)
+            n_idx2 = self._add_normal(n2)
+            n_idx3 = self._add_normal(n3)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.faces.append([idx1, idx3, idx2])
+            self.face_normals.append([n_idx0, n_idx1, n_idx2])
+            self.face_normals. append([n_idx1, n_idx3, n_idx2])
+
+            offset += PGT4_SIZE
+        return offset
+
+    def _parse_f3_polys(self, offset: int, count: int) -> int:
+        """Parse flat-shaded triangles (PF3)"""
+        for _ in range(count):
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
+            v2 = SVECTOR.from_bytes(self. data, offset + 16)
+            n = SVECTOR. from_bytes(self.data, offset + 24)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            n_idx = self._add_normal(n)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.face_normals.append([n_idx, n_idx, n_idx])
+
+            offset += PF3_SIZE
+        return offset
+
+    def _parse_g3_polys(self, offset: int, count: int) -> int:
+        """Parse gouraud-shaded triangles (PG3)"""
+        for _ in range(count):
+            v0 = SVECTOR. from_bytes(self.data, offset)
+            v1 = SVECTOR. from_bytes(self.data, offset + 8)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
+            n0 = SVECTOR.from_bytes(self.data, offset + 24)
+            n1 = SVECTOR.from_bytes(self. data, offset + 32)
+            n2 = SVECTOR.from_bytes(self.data, offset + 40)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            n_idx0 = self._add_normal(n0)
+            n_idx1 = self._add_normal(n1)
+            n_idx2 = self._add_normal(n2)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.face_normals.append([n_idx0, n_idx1, n_idx2])
+
+            offset += PG3_SIZE
+        return offset
+
+    def _parse_ft3_polys(self, offset: int, count: int) -> int:
+        """Parse flat-shaded textured triangles (PFT3)"""
+        for _ in range(count):
+            v0 = SVECTOR.from_bytes(self. data, offset)
+            v1 = SVECTOR.from_bytes(self. data, offset + 8)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
+            n = SVECTOR.from_bytes(self.data, offset + 24)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            n_idx = self._add_normal(n)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.face_normals.append([n_idx, n_idx, n_idx])
+
+            offset += PFT3_SIZE
+        return offset
+
+    def _parse_gt3_polys(self, offset:  int, count: int) -> int:
+        """Parse gouraud-shaded textured triangles (PGT3)"""
+        for _ in range(count):
+            v0 = SVECTOR.from_bytes(self. data, offset)
+            v1 = SVECTOR.from_bytes(self. data, offset + 8)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
+            n0 = SVECTOR. from_bytes(self.data, offset + 24)
+            n1 = SVECTOR.from_bytes(self.data, offset + 32)
+            n2 = SVECTOR.from_bytes(self.data, offset + 40)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            n_idx0 = self._add_normal(n0)
+            n_idx1 = self._add_normal(n1)
+            n_idx2 = self._add_normal(n2)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.face_normals.append([n_idx0, n_idx1, n_idx2])
+
+            offset += PGT3_SIZE
+        return offset
+
+    def export_obj(self, filename: str):
+        """Export parsed model to OBJ format"""
+        with open(filename, 'w') as f:
+            f.write(f"# Converted from AMF (UnnamedHB1 PS1 Format)\n")
             f.write(f"# Vertices: {len(self.vertices)}\n")
+            f.write(f"# Normals: {len(self.normals)}\n")
             f.write(f"# Faces: {len(self.faces)}\n\n")
-            
+
             # Write vertices
             for v in self.vertices:
                 f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
-            
-            # Write normals
-            if self.normals:
-                f.write("\n")
-                for n in self.normals:
-                    f.write(f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}\n")
-            
-            # Write faces
+
             f.write("\n")
-            for face in self.faces:
-                if self.normals:
-                    f.write(f"f {face[0]}//{face[0]} {face[1]}//{face[1]} {face[3]}//{face[3]} {face[2]}//{face[2]}\n")
+
+            # Write normals
+            for n in self.normals:
+                f.write(f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}\n")
+
+            f.write("\n")
+
+            # Write faces (with normals)
+            for face, normals in zip(self.faces, self. face_normals):
+                if len(face) == 3 and len(normals) == 3:
+                    f.write(f"f {face[0]}//{normals[0]} "
+                            f"{face[1]}//{normals[1]} "
+                            f"{face[2]}//{normals[2]}\n")
                 else:
-                    f. write(f"f {face[0]} {face[1]} {face[3]} {face[2]}\n")
-        
-        print(f"\nOBJ file written to:  {output_path}")
+                    # Fallback without normals
+                    f.write(f"f {' '.join(map(str, face))}\n")
+
+        print(f"\nExported to {filename}")
+        print(f"  Vertices: {len(self.vertices)}")
+        print(f"  Normals: {len(self.normals)}")
+        print(f"  Faces: {len(self.faces)}")
+
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python amf_to_obj. py <input. amf> [output.obj]")
+        print(f"Usage: {sys.argv[0]} input.amf [output.obj]")
+        print("\nConverts AMF files from UnnamedHB1 PS1 homebrew to OBJ format.")
         sys.exit(1)
-    
-    input_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else input_file.rsplit('.', 1)[0] + '.obj'
-    
-    # Read AMF file
-    if input_file == '-':
-        data = sys.stdin.buffer.read()
-    else:
-        with open(input_file, 'rb') as f:
-            data = f.read()
-    
-    print(f"Loaded {len(data)} bytes")
-    print(f"First 64 bytes (hex): {data[:64].hex()}\n")
-    
-    # Convert
-    converter = AMFConverter(data)
-    converter.parse()
-    
-    if len(converter.vertices) > 0:
-        converter.write_obj(output_file)
-        print("\nConversion complete!")
-    else:
-        print("\nERROR: No vertices found.")
 
-if __name__ == "__main__":
+    input_file = sys.argv[1]
+
+    if len(sys.argv) >= 3:
+        output_file = sys.argv[2]
+    else: 
+        output_file = os.path.splitext(input_file)[0] + ".obj"
+
+    # Read input file
+    with open(input_file, 'rb') as f:
+        data = f.read()
+
+    print(f"Reading {input_file} ({len(data)} bytes)")
+
+    # Parse and convert
+    parser = AMFParser(data)
+    parser.parse()
+    parser.export_obj(output_file)
+
+
+if __name__ == "__main__": 
     main()
