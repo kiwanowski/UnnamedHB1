@@ -529,7 +529,7 @@ class AMFWriter:
 
         # Write 4 vertices
         for v in [v0, v1, v2, v3]: 
-            sv = SVECTOR.from_float(v.position[0], v.position[1], v. position[2], scale=128.0)
+            sv = SVECTOR.from_float(v.position[0], v.position[1], v. position[2], scale=64.0)
             f.write(sv.to_bytes())
 
         # Write 4 normals
