@@ -1,0 +1,377 @@
+{
+    "asset": {
+        "version": "2.0",
+        "generator": "THREE.GLTFExporter"
+    },
+    "scenes": [
+        {
+            "name": "default",
+            "nodes": [
+                0
+            ]
+        }
+    ],
+    "scene": 0,
+    "nodes": [
+        {
+            "name": "default",
+            "mesh": 0
+        }
+    ],
+    "bufferViews": [
+        {
+            "buffer": 0,
+            "byteOffset": 0,
+            "byteLength": 432,
+            "target": 34962,
+            "byteStride": 12
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 432,
+            "byteLength": 432,
+            "target": 34962,
+            "byteStride": 12
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 864,
+            "byteLength": 288,
+            "target": 34962,
+            "byteStride": 8
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 1152,
+            "byteLength": 576,
+            "target": 34962,
+            "byteStride": 16
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 1728,
+            "byteLength": 72,
+            "target": 34963
+        }
+    ],
+    "buffers": [
+        {
+            "byteLength": 1800,
+            "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAIBAAACAQAAAgEAAAIBAAAAAAAAAgEAAAIBAAAAAAAAAAAAAAIBAAACAQAAAAAAAAIBAAACAQAAAgEAAAIBAAACAQAAAAAAAAIBAAACAQAAAgEAAAAAAAACAQAAAgEAAAIBAAACAQAAAAAAAAIBAAACAQAAAAAAAAAAAAACAQAAAgEAAAAAAAACAQAAAAAAAAAAAAAAAAAAAgEAAAAAAAACAQAAAgEAAAAAAAACAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgEAAAIBAAAAAAAAAgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBAAAAAAAAAgEAAAIBAAAAAAAAAgEAAAIBAAACAQAAAgEAAAAAAAAAAAAAAgEAAAAAAAAAAAAAAgEAAAIBAAACAQAAAgEAAAIBAAACAQAAAgEAAAAAAAAAAAAAAAAAAAAAAAACAQAAAAAAAAIBAAAAAAAAAAAAAAIBAAAAAAAAAAAAAAAAAAACAQAAAAAAAAAAAAACAQAAAAAAAAIBAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAZs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/Zs3mPms+KTxh60Y7AACAP2bN5j5rPik8YetGOwAAgD9mzeY+az4pPGHrRjsAAIA/AAABAAIAAwAEAAUABgAHAAgACQAKAAsADAANAA4ADwAQABEAEgATABQAFQAWABcAGAAZABoAGwAcAB0AHgAfACAAIQAiACMA"
+        }
+    ],
+    "accessors": [
+        {
+            "bufferView": 0,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                4,
+                4,
+                4
+            ],
+            "min": [
+                0,
+                0,
+                0
+            ],
+            "type": "VEC3"
+        },
+        {
+            "bufferView": 1,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                1,
+                1,
+                1
+            ],
+            "min": [
+                -1,
+                -1,
+                -1
+            ],
+            "type": "VEC3"
+        },
+        {
+            "bufferView": 2,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                1,
+                1
+            ],
+            "min": [
+                0,
+                0
+            ],
+            "type": "VEC2"
+        },
+        {
+            "bufferView": 3,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                0.4507858157157898,
+                0.01032982300966978,
+                0.0030352699104696512,
+                1
+            ],
+            "min": [
+                0.4507858157157898,
+                0.01032982300966978,
+                0.0030352699104696512,
+                1
+            ],
+            "type": "VEC4"
+        },
+        {
+            "bufferView": 4,
+            "componentType": 5123,
+            "count": 36,
+            "max": [
+                35
+            ],
+            "min": [
+                0
+            ],
+            "type": "SCALAR"
+        }
+    ],
+    "materials": [
+        {
+            "pbrMetallicRoughness": {
+                "metallicFactor": 0,
+                "roughnessFactor": 1,
+                "baseColorTexture": {
+                    "index": 0
+                }
+            },
+            "alphaMode": "MASK",
+            "alphaCutoff": 0.01,
+            "name": "texture_1"
+        }
+    ],
+    "textures": [
+        {
+            "sampler": 0,
+            "source": 0,
+            "name": "texture_1"
+        }
+    ],
+    "samplers": [
+        {
+            "magFilter": 9728,
+            "minFilter": 9728,
+            "wrapS": 33071,
+            "wrapT": 33071
+        }
+    ],
+    "images": [
+        {
+            "mimeType": "image/png",
+            "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAIBJREFUeF7t14ERACAMAjG7/9A4yMcROEuO27YXficAP8AJ6IBwBz4lSAEKUIACFAgngEEMYhCDGAwjYAxhEIMYxCAGMRhOAIMYxCAGMRhGwBrEIAYxiEEMYjCcAAYxiEEMYjCMgDWIQQxiEIMYxGA4AQxiEIMYxGAYAWsQg3UGP7JJ/0FcwEOPAAAAAElFTkSuQmCC"
+        }
+    ],
+    "meshes": [
+        {
+            "primitives": [
+                {
+                    "mode": 4,
+                    "attributes": {
+                        "POSITION": 0,
+                        "NORMAL": 1,
+                        "TEXCOORD_0": 2,
+                        "COLOR_0": 3
+                    },
+                    "extras": {
+                        "indexNormals": [
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": 1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": 1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": 1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": 1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": 1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": 1
+                            },
+                            {
+                                "x": 1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": 1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": 1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": 1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": 1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": 1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": -1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": -1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": -1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": -1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": -1
+                            },
+                            {
+                                "x": 0,
+                                "y": 0,
+                                "z": -1
+                            },
+                            {
+                                "x": -1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": -1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": -1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": -1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": -1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": -1,
+                                "y": 0,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": 1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": 1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": 1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": 1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": 1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": 1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": -1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": -1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": -1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": -1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": -1,
+                                "z": 0
+                            },
+                            {
+                                "x": 0,
+                                "y": -1,
+                                "z": 0
+                            }
+                        ]
+                    },
+                    "indices": 4,
+                    "material": 0
+                }
+            ]
+        }
+    ]
+}
