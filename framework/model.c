@@ -41,7 +41,7 @@ AMF pellet_amf;
 
 void initModels() {
     // amfInitData(&cyl_amf, cyl_amf_data);
-    amfInitData(&enemy_amf, enemy_amf_data);
+    // amfInitData(&enemy_amf, enemy_amf_data);
     amfInitData(&pellet_amf, pellet_amf_data);
     amfInitData(&room_amf, room_amf_data);
 

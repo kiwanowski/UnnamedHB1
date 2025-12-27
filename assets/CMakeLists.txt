@@ -4,10 +4,7 @@ set(COLLISIONS_DIR ${PROJECT_SOURCE_DIR}/assets/collisions)
 set(SOUNDS_DIR ${PROJECT_SOURCE_DIR}/assets/sound)
 
 psn00bsdk_target_incbin(GAME PRIVATE room_amf_data ${MODELS_DIR}/room.amf)
-psn00bsdk_target_incbin(GAME PRIVATE enemy_amf_data ${MODELS_DIR}/enemy.amf)
 psn00bsdk_target_incbin(GAME PRIVATE pellet_amf_data ${MODELS_DIR}/pellet.amf)
-psn00bsdk_target_incbin(GAME PRIVATE light_amf_data ${MODELS_DIR}/light.amf)
-psn00bsdk_target_incbin(GAME PRIVATE cyl_amf_data ${MODELS_DIR}/cyl.amf)
 
 psn00bsdk_target_incbin(GAME PRIVATE enemy_aamf_data ${MODELS_DIR}/map.aamf)
 
