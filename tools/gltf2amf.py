@@ -402,17 +402,16 @@ class TriangleToQuadMerger:
             return None
         return (v[0] / length, v[1] / length, v[2] / length)
 
-    def _create_quad(self, tri1: Triangle, tri2: Triangle,
-                     edge_idx1: int, edge_idx2: int) -> Quad:
+    def _create_quad(self, tri1:  Triangle, tri2: Triangle,
+                 edge_idx1: int, edge_idx2: int) -> Quad: 
         """Create a quad from two triangles sharing an edge
 
         PS1 quad vertex order is Z-pattern: 
-          v0 -- v1
-           |  /  |
-          v2 -- v3
+        v0 -- v1
+        |  /  |
+        v2 -- v3
 
-        Triangle 1: v0, v1, v2 (edge v1-v2 shared)
-        Triangle 2: v1, v3, v2 (edge v1-v2 shared)
+        The winding must be consistent (clockwise for PS1 front faces).
         """
         # Get shared edge vertices from tri1
         edge = tri1.get_edge(edge_idx1)
@@ -427,15 +426,23 @@ class TriangleToQuadMerger:
         e0, e1 = edge
 
         # Check triangle winding to assign v1 and v2 correctly
-        # In tri1: v0 -> e0 -> e1 or v0 -> e1 -> e0
+        # In tri1: the edge follows the winding order
         tri1_verts = [tri1.v0, tri1.v1, tri1.v2]
         v0_pos = tri1_verts.index(v0_idx)
+        
+        # The vertex after v0 in winding order
         next_vert = tri1_verts[(v0_pos + 1) % 3]
+        # The vertex before v0 in winding order (or after next_vert)
+        prev_vert = tri1_verts[(v0_pos + 2) % 3]
 
-        if next_vert == e0:
-            v1_idx, v2_idx = e0, e1
-        else:
-            v1_idx, v2_idx = e1, e0
+        # For correct Z-pattern winding: 
+        # v0 -> v1 (top edge, left to right)
+        # v0 -> v2 (left edge, top to bottom)
+        # The triangle winding is v0 -> next_vert -> prev_vert
+        # So:  v1 = prev_vert (diagonal goes v1 -> v2)
+        #     v2 = next_vert
+        v1_idx = prev_vert
+        v2_idx = next_vert
 
         return Quad(v0=v0_idx, v1=v1_idx, v2=v2_idx, v3=v3_idx)
 
