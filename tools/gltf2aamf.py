@@ -301,27 +301,27 @@ def merge_triangles_to_quads(triangles: List[Triangle]) -> Tuple[List[Quad], Lis
     debug_print("\n" + "=" * 80)
     debug_print("TRIANGLE TO QUAD MERGING ANALYSIS")
     debug_print("=" * 80)
-    debug_print(f"Input:  {len(triangles)} triangles")
+    debug_print(f"Input:   {len(triangles)} triangles")
     
     # Build adjacency map based on shared edges
-    edge_to_triangle:  Dict[Tuple, List[Tuple[int, int]]] = {}  # edge -> [(tri_idx, edge_idx), ...]
+    edge_to_triangle:   Dict[Tuple, List[Tuple[int, int]]] = {}
     
     for tri_idx, tri in enumerate(triangles):
         debug_print(f"\nTriangle {tri_idx}:")
-        debug_print(f"  v0: {format_vector(tri. v0.position)}")
+        debug_print(f"  v0: {format_vector(tri.v0. position)}")
         debug_print(f"  v1: {format_vector(tri. v1.position)}")
         debug_print(f"  v2: {format_vector(tri. v2.position)}")
-        debug_print(f"  Face normal: {format_vector(tri.calculate_normal())}")
+        debug_print(f"  Face normal: {format_vector(tri. calculate_normal())}")
         debug_print(f"  Area: {tri.calculate_area():.6f}")
         
         for edge_idx in range(3):
-            edge = tri.get_edge(edge_idx)
+            edge = tri. get_edge(edge_idx)
             # Normalize edge direction for consistent hashing
             edge_key = tuple(sorted([edge[0], edge[1]], key=lambda p: (p[0], p[1], p[2])))
             if edge_key not in edge_to_triangle:
                 edge_to_triangle[edge_key] = []
             edge_to_triangle[edge_key].append((tri_idx, edge_idx))
-            debug_print(f"  Edge {edge_idx}:  {format_vector(edge[0])} -> {format_vector(edge[1])}")
+            debug_print(f"  Edge {edge_idx}:   {format_vector(edge[0])} -> {format_vector(edge[1])}")
     
     # Find pairs of triangles sharing an edge
     debug_print("\n" + "-" * 40)
@@ -332,11 +332,11 @@ def merge_triangles_to_quads(triangles: List[Triangle]) -> Tuple[List[Quad], Lis
     for edge_key, tri_list in edge_to_triangle.items():
         if len(tri_list) >= 2:
             shared_edge_count += 1
-            debug_print(f"Shared edge:  {len(tri_list)} triangles share edge")
-            for tri_idx, edge_idx in tri_list:
+            debug_print(f"Shared edge:   {len(tri_list)} triangles share edge")
+            for tri_idx, edge_idx in tri_list: 
                 debug_print(f"  Triangle {tri_idx}, edge {edge_idx}")
     
-    debug_print(f"\nTotal shared edges:  {shared_edge_count}")
+    debug_print(f"\nTotal shared edges:   {shared_edge_count}")
     
     debug_print("\n" + "-" * 40)
     debug_print("QUAD FORMATION")
@@ -364,19 +364,44 @@ def merge_triangles_to_quads(triangles: List[Triangle]) -> Tuple[List[Quad], Lis
         planarity_check = is_planar(shared_v1, shared_v2, opp1, opp2)
         
         debug_print(f"\nCandidate quad from triangles {idx1} + {idx2}:")
-        debug_print(f"  Shared edge:  {format_vector(shared_v1.position)} - {format_vector(shared_v2.position)}")
+        debug_print(f"  Shared edge:   {format_vector(shared_v1. position)} - {format_vector(shared_v2.position)}")
         debug_print(f"  Opposite vertices: {format_vector(opp1.position)}, {format_vector(opp2.position)}")
         debug_print(f"  Planarity check: {'PASS' if planarity_check else 'FAIL'}")
         
-        if not planarity_check: 
+        if not planarity_check:  
             debug_print(f"  -> Skipping (not planar)")
             continue
         
-        # Create quad in PS1 Z-pattern order
+        # Create quad with proper winding order based on triangle winding
+        # Get the vertices of tri1 in order
+        tri1_verts = [tri1.v0, tri1.v1, tri1.v2]
+        
+        # Find position of opposite vertex in tri1's vertex list
+        opp1_pos = -1
+        for i, v in enumerate(tri1_verts):
+            if v. position == opp1.position:
+                opp1_pos = i
+                break
+        
+        if opp1_pos == -1:
+            debug_print(f"  -> Skipping (couldn't find opposite vertex position)")
+            continue
+        
+        # The vertices after opp1 in winding order form the shared edge
+        # next_vert is the first edge vertex in winding order
+        # prev_vert is the second edge vertex in winding order
+        next_vert = tri1_verts[(opp1_pos + 1) % 3]
+        prev_vert = tri1_verts[(opp1_pos + 2) % 3]
+        
+        # For PS1 Z-pattern with correct winding: 
+        # v0 = opp1 (top-left, opposite vertex from tri1)
+        # v1 = prev_vert (top-right, second edge vertex in winding)
+        # v2 = next_vert (bottom-left, first edge vertex in winding)
+        # v3 = opp2 (bottom-right, opposite vertex from tri2)
         quad = Quad(
             v0=opp1,
-            v1=shared_v1,
-            v2=shared_v2,
+            v1=prev_vert,
+            v2=next_vert,
             v3=opp2,
             source_triangle_indices=(idx1, idx2),
             is_degenerate=False
@@ -384,14 +409,14 @@ def merge_triangles_to_quads(triangles: List[Triangle]) -> Tuple[List[Quad], Lis
         
         debug_print(f"  -> Created Quad {quad_idx}:")
         debug_print(f"     v0 (opp1):     {format_vector(quad.v0.position)}")
-        debug_print(f"     v1 (shared1):  {format_vector(quad.v1.position)}")
-        debug_print(f"     v2 (shared2):  {format_vector(quad.v2.position)}")
+        debug_print(f"     v1 (prev):     {format_vector(quad.v1.position)}")
+        debug_print(f"     v2 (next):     {format_vector(quad.v2.position)}")
         debug_print(f"     v3 (opp2):     {format_vector(quad.v3.position)}")
         debug_print(f"     Area: {quad.calculate_area():.6f}")
         debug_print(f"     Face normal: {format_vector(quad.calculate_normal())}")
-        debug_print(f"     Convex: {quad.is_convex()}")
+        debug_print(f"     Convex: {quad. is_convex()}")
         
-        quads. append(quad)
+        quads.append(quad)
         used.add(idx1)
         used.add(idx2)
         quad_idx += 1
@@ -402,11 +427,11 @@ def merge_triangles_to_quads(triangles: List[Triangle]) -> Tuple[List[Quad], Lis
     debug_print("-" * 40)
     
     for idx, tri in enumerate(triangles):
-        if idx not in used:
-            remaining. append(tri)
+        if idx not in used: 
+            remaining.append(tri)
             debug_print(f"Triangle {idx}:  {format_vector(tri.v0.position)}, {format_vector(tri.v1.position)}, {format_vector(tri. v2.position)}")
     
-    debug_print(f"\nMerge summary:  {len(triangles)} triangles -> {len(quads)} quads + {len(remaining)} remaining")
+    debug_print(f"\nMerge summary:   {len(triangles)} triangles -> {len(quads)} quads + {len(remaining)} remaining")
     
     return quads, remaining
 
