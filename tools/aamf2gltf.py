@@ -409,10 +409,10 @@ class AMFParser:
 
             # PS1 quad winding:  v0-v1-v2-v3 forms a Z pattern
             # Split into two triangles:  v0-v1-v2 and v1-v3-v2
-            self.faces.append([idx0, idx1, idx2])
-            self.faces.append([idx1, idx3, idx2])
-            self.face_normals.append([n_idx, n_idx + 1, n_idx + 2])
-            self.face_normals.append([n_idx + 1, n_idx + 3, n_idx + 2])
+            self.faces.append([idx0, idx2, idx1])
+            self.faces.append([idx1, idx2, idx3])
+            self.face_normals.append([n_idx, n_idx + 2, n_idx + 1])
+            self.face_normals.append([n_idx + 1, n_idx + 2, n_idx + 3])
 
             offset += PF4_SIZE
         return offset
@@ -440,10 +440,10 @@ class AMFParser:
             n_idx2 = self._add_normal(n2)
             n_idx3 = self._add_normal(n3)
 
-            self. faces.append([idx0, idx1, idx2])
-            self.faces.append([idx1, idx3, idx2])
-            self.face_normals.append([n_idx0, n_idx1, n_idx2])
-            self.face_normals. append([n_idx1, n_idx3, n_idx2])
+            self. faces.append([idx0, idx2, idx1])
+            self.faces.append([idx1, idx2, idx3])
+            self.face_normals.append([n_idx0, n_idx2, n_idx1])
+            self.face_normals. append([n_idx1, n_idx2, n_idx3])
 
             offset += PG4_SIZE
         return offset
@@ -468,10 +468,10 @@ class AMFParser:
             self._add_normal(n)
             self._add_normal(n)
 
-            self.faces.append([idx0, idx1, idx2])
-            self.faces. append([idx1, idx3, idx2])
-            self.face_normals. append([n_idx, n_idx + 1, n_idx + 2])
-            self.face_normals.append([n_idx + 1, n_idx + 3, n_idx + 2])
+            self.faces.append([idx0, idx2, idx1])
+            self.faces. append([idx1, idx2, idx3])
+            self.face_normals. append([n_idx, n_idx + 2, n_idx + 1])
+            self.face_normals.append([n_idx + 1, n_idx + 2, n_idx + 3])
 
             offset += PFT4_SIZE
         return offset
@@ -507,12 +507,12 @@ class AMFParser:
             c_idx2 = self._add_color(c2)
             c_idx3 = self._add_color(c3)
 
-            self.faces.append([idx0, idx1, idx2])
-            self.faces.append([idx1, idx3, idx2])
-            self.face_normals.append([n_idx0, n_idx1, n_idx2])
-            self.face_normals.append([n_idx1, n_idx3, n_idx2])
-            self.face_colors.append([c_idx0, c_idx1, c_idx2])
-            self.face_colors.append([c_idx1, c_idx3, c_idx2])
+            self.faces.append([idx0, idx2, idx1])
+            self.faces.append([idx1, idx2, idx3])
+            self.face_normals.append([n_idx0, n_idx2, n_idx1])
+            self.face_normals.append([n_idx1, n_idx2, n_idx3])
+            self.face_colors.append([c_idx0, c_idx2, c_idx1])
+            self.face_colors.append([c_idx1, c_idx2, c_idx3])
 
             offset += PGT4_SIZE
         return offset
