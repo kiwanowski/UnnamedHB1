@@ -74,4 +74,4 @@ void setAnimationKeyframe(AAMF* aamf, uint16_t keyframe);
 void activateAnimationSkinned(SAMF* samf, char name[8]);
 void setAnimationKeyframeSkinned(SAMF* samf, uint16_t keyframe, MATRIX* bone_matrices);
 
-#endif // _ANIM_MODEL_H
+#endif // ANIM_MODEL_H

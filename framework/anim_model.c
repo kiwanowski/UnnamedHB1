@@ -78,7 +78,7 @@ void samfInitData(SAMF* samf, unsigned char* data) {
     samf->header.version = *(d16 + 2);
     samf->header.bone_count = *(d16 + 3);
     samf->header.anim_count = *(d16 + 4);
-    samf->header.vertex_count = *(d32 + 2) >> 16 | (*(d32 + 3) & 0xFFFF);
+    samf->header.vertex_count = *(d32 + 2);  // Fixed: directly read uint32_t at offset 10
     samf->header.face_count = *(d16 + 7);
     
     uint32_t offset = 16;
@@ -106,6 +106,10 @@ void samfInitData(SAMF* samf, unsigned char* data) {
     
     // Parse animations
     samf->anims = malloc(sizeof(Animation*) * samf->header.anim_count);
+    if (!samf->anims) {
+        // Allocation failed
+        return;
+    }
     samf->active_anim = 0;
     
     for (uint16_t i = 0; i < samf->header.anim_count; ++i) {

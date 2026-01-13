@@ -39,7 +39,7 @@ class SVECTOR:
 
     @classmethod
     def from_bytes(cls, data: bytes, offset: int = 0) -> 'SVECTOR': 
-        vx, vy, vz, pad = struct. unpack_from('<hhhh', data, offset)
+        vx, vy, vz, pad = struct.unpack_from('<hhhh', data, offset)
         return cls(vx, vy, vz, pad)
 
     def to_float(self, scale: float = 1.0 / 4096.0) -> Tuple[float, float, float]:
@@ -411,7 +411,7 @@ class AMFParser:
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n = SVECTOR.from_bytes(self.data, offset + 32)
 
             idx0 = self._add_vertex(v0)
@@ -441,11 +441,11 @@ class AMFParser:
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n0 = SVECTOR.from_bytes(self.data, offset + 32)
             n1 = SVECTOR. from_bytes(self.data, offset + 40)
             n2 = SVECTOR.from_bytes(self.data, offset + 48)
-            n3 = SVECTOR.from_bytes(self. data, offset + 56)
+            n3 = SVECTOR.from_bytes(self.data, offset + 56)
 
             idx0 = self._add_vertex(v0)
             idx1 = self._add_vertex(v1)
@@ -472,7 +472,7 @@ class AMFParser:
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n = SVECTOR. from_bytes(self.data, offset + 32)
 
             idx0 = self._add_vertex(v0)
@@ -500,15 +500,15 @@ class AMFParser:
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n0 = SVECTOR.from_bytes(self.data, offset + 32)
             n1 = SVECTOR. from_bytes(self.data, offset + 40)
             n2 = SVECTOR.from_bytes(self.data, offset + 48)
             n3 = SVECTOR.from_bytes(self.data, offset + 56)
-            c0 = CVECTOR.from_bytes(self. data, offset + 64)
+            c0 = CVECTOR.from_bytes(self.data, offset + 64)
             c1 = CVECTOR.from_bytes(self.data, offset + 68)
             c2 = CVECTOR.from_bytes(self.data, offset + 72)
-            c3 = CVECTOR.from_bytes(self. data, offset + 76)
+            c3 = CVECTOR.from_bytes(self.data, offset + 76)
 
             idx0 = self._add_vertex(v0)
             idx1 = self._add_vertex(v1)
@@ -565,7 +565,7 @@ class AMFParser:
             v1 = SVECTOR. from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
             n0 = SVECTOR.from_bytes(self.data, offset + 24)
-            n1 = SVECTOR.from_bytes(self. data, offset + 32)
+            n1 = SVECTOR.from_bytes(self.data, offset + 32)
             n2 = SVECTOR.from_bytes(self.data, offset + 40)
 
             idx0 = self._add_vertex(v0)
@@ -612,7 +612,7 @@ class AMFParser:
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            n0 = SVECTOR.from_bytes(self. data, offset + 24)
+            n0 = SVECTOR.from_bytes(self.data, offset + 24)
             n1 = SVECTOR.from_bytes(self.data, offset + 32)
             n2 = SVECTOR. from_bytes(self.data, offset + 40)
 
@@ -667,18 +667,18 @@ class AAMFParser:
     def _parse_legacy(self):
         """Parse the legacy AAMF file format"""
         # Parse header
-        self. bone_count = struct. unpack_from('<H', self.data, 0)[0]
-        self.anim_count = struct.unpack_from('<H', self. data, 2)[0]
+        self.bone_count = struct.unpack_from('<H', self.data, 0)[0]
+        self.anim_count = struct.unpack_from('<H', self.data, 2)[0]
 
         print(f"Legacy AAMF Header:")
-        print(f"  Bone count: {self. bone_count}")
+        print(f"  Bone count: {self.bone_count}")
         print(f"  Animation count: {self.anim_count}")
 
         # Parse bone parent table (pairs of uint16_t for each bone)
-        for i in range(self. bone_count):
+        for i in range(self.bone_count):
             bone_idx = struct.unpack_from('<H', self.data, 4 + i * 4)[0]
-            parent_idx = struct.unpack_from('<H', self. data, 4 + i * 4 + 2)[0]
-            self.bone_parents. append((bone_idx, parent_idx))
+            parent_idx = struct.unpack_from('<H', self.data, 4 + i * 4 + 2)[0]
+            self.bone_parents.append((bone_idx, parent_idx))
             print(f"  Bone {bone_idx}:  parent = {parent_idx}")
 
         # Data blocks start after header:  4 bytes + boneamount * 4 bytes
@@ -686,7 +686,7 @@ class AAMFParser:
         offset = 0
 
         # Parse bone AMF data
-        for i in range(self. bone_count):
+        for i in range(self.bone_count):
             # Each block starts with a 4-byte size
             block_size = struct.unpack_from('<I', self.data, data_start + offset)[0]
             amf_offset = data_start + offset + 4
@@ -703,9 +703,9 @@ class AAMFParser:
                 traceback.print_exc()
                 amf_parser.vertices = []
                 amf_parser.normals = []
-                amf_parser. colors = []
-                amf_parser. faces = []
-                amf_parser. face_normals = []
+                amf_parser.colors = []
+                amf_parser.faces = []
+                amf_parser.face_normals = []
                 amf_parser.face_colors = []
 
             bone = Bone(
@@ -713,9 +713,9 @@ class AAMFParser:
                 parent_index=self.bone_parents[i][1],
                 vertices=amf_parser.vertices,
                 normals=amf_parser.normals,
-                colors=amf_parser. colors,
+                colors=amf_parser.colors,
                 faces=amf_parser.faces,
-                face_normals=amf_parser. face_normals,
+                face_normals=amf_parser.face_normals,
                 face_colors=amf_parser.face_colors
             )
             self.bones.append(bone)
@@ -726,12 +726,12 @@ class AAMFParser:
 
         # Parse animations
         for i in range(self. anim_count):
-            block_size = struct. unpack_from('<I', self.data, data_start + offset)[0]
+            block_size = struct.unpack_from('<I', self.data, data_start + offset)[0]
             anim_offset = data_start + offset + 4
 
             print(f"\nParsing animation {i} at offset {anim_offset} (block size: {block_size})")
 
-            anim = Animation. from_bytes(self.data, anim_offset, self.bone_count)
+            anim = Animation.from_bytes(self.data, anim_offset, self.bone_count)
             self.animations.append(anim)
 
             print(f"  Name: '{anim.name}', Keyframes: {anim.keyframe_count}")
