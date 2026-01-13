@@ -276,6 +276,22 @@ PGT4_SIZE = 136
 
 
 @dataclass
+class SkinWeight:
+    """Skin weight data for a single vertex (max 4 bone influences)"""
+    bone_indices: List[int]  # up to 4 bone indices
+    weights: List[float]  # normalized weights (0.0-1.0)
+
+    @classmethod
+    def from_bytes(cls, data: bytes, offset: int = 0) -> 'SkinWeight':
+        """Parse skin weight from 8 bytes: 4 bone indices + 4 weights (uint8_t each)"""
+        bone_indices = list(struct.unpack_from('<BBBB', data, offset))
+        weight_bytes = list(struct.unpack_from('<BBBB', data, offset + 4))
+        # Convert 0-255 to 0.0-1.0
+        weights = [w / 255.0 for w in weight_bytes]
+        return cls(bone_indices, weights)
+
+
+@dataclass
 class Bone:
     """Bone with embedded AMF model data"""
     index: int
@@ -624,14 +640,37 @@ class AAMFParser:
         self.bone_parents: List[Tuple[int, int]] = []  # (bone_index, parent_index)
         self.bones: List[Bone] = []
         self.animations: List[Animation] = []
+        self.is_skinned: bool = False
+        self.format_version: int = 1
+        self.bind_poses: List[MATRIX] = []
+        # Skinned mesh data (unified mesh for all bones)
+        self.vertices: List[Tuple[float, float, float]] = []
+        self.normals: List[Tuple[float, float, float]] = []
+        self.skin_weights: List[SkinWeight] = []
+        self.faces: List[List[int]] = []
 
     def parse(self):
         """Parse the AAMF file"""
+        # Check for skinned format magic ('SAMF')
+        magic = self.data[0:4]
+        if magic == b'SAMF':
+            self.is_skinned = True
+            self._parse_skinned()
+        elif magic == b'AAMF':
+            self.is_skinned = True
+            self._parse_skinned()
+        else:
+            # Legacy format (no magic, starts with bone count)
+            self.is_skinned = False
+            self._parse_legacy()
+
+    def _parse_legacy(self):
+        """Parse the legacy AAMF file format"""
         # Parse header
         self. bone_count = struct. unpack_from('<H', self.data, 0)[0]
         self.anim_count = struct.unpack_from('<H', self. data, 2)[0]
 
-        print(f"AAMF Header:")
+        print(f"Legacy AAMF Header:")
         print(f"  Bone count: {self. bone_count}")
         print(f"  Animation count: {self.anim_count}")
 
@@ -699,8 +738,99 @@ class AAMFParser:
 
             offset += block_size
 
+    def _parse_skinned(self):
+        """Parse the new skinned AAMF file format"""
+        # Header (16 bytes):
+        #   - uint32_t magic ('AAMF' or 'SAMF')
+        #   - uint16_t version (2 for skinned format)
+        #   - uint16_t bone_count
+        #   - uint16_t anim_count
+        #   - uint32_t vertex_count
+        #   - uint16_t face_count
+        
+        magic = struct.unpack_from('<4s', self.data, 0)[0]
+        self.format_version = struct.unpack_from('<H', self.data, 4)[0]
+        self.bone_count = struct.unpack_from('<H', self.data, 6)[0]
+        self.anim_count = struct.unpack_from('<H', self.data, 8)[0]
+        vertex_count = struct.unpack_from('<I', self.data, 10)[0]
+        face_count = struct.unpack_from('<H', self.data, 14)[0]
+        
+        print(f"Skinned AAMF Header:")
+        print(f"  Magic: {magic}")
+        print(f"  Version: {self.format_version}")
+        print(f"  Bone count: {self.bone_count}")
+        print(f"  Animation count: {self.anim_count}")
+        print(f"  Vertex count: {vertex_count}")
+        print(f"  Face count: {face_count}")
+        
+        offset = 16
+        
+        # Parse bone parent table
+        for i in range(self.bone_count):
+            bone_idx = struct.unpack_from('<H', self.data, offset)[0]
+            parent_idx = struct.unpack_from('<H', self.data, offset + 2)[0]
+            self.bone_parents.append((bone_idx, parent_idx))
+            print(f"  Bone {bone_idx}: parent = {parent_idx}")
+            offset += 4
+        
+        # Parse bind pose transforms
+        for i in range(self.bone_count):
+            bind_pose = MATRIX.from_bytes(self.data, offset)
+            self.bind_poses.append(bind_pose)
+            offset += 32  # MATRIX is 32 bytes
+        
+        # Parse unified mesh data
+        # Vertices
+        for i in range(vertex_count):
+            v = SVECTOR.from_bytes(self.data, offset)
+            self.vertices.append(v.to_float())
+            offset += 8
+        
+        # Normals
+        for i in range(vertex_count):
+            n = SVECTOR.from_bytes(self.data, offset)
+            self.normals.append(n.to_float())
+            offset += 8
+        
+        # Skin weights
+        for i in range(vertex_count):
+            sw = SkinWeight.from_bytes(self.data, offset)
+            self.skin_weights.append(sw)
+            offset += 8  # 4 bytes bone indices + 4 bytes weights
+        
+        # Faces
+        for i in range(face_count):
+            v0 = struct.unpack_from('<H', self.data, offset)[0]
+            v1 = struct.unpack_from('<H', self.data, offset + 2)[0]
+            v2 = struct.unpack_from('<H', self.data, offset + 4)[0]
+            self.faces.append([v0, v1, v2])
+            offset += 6
+        
+        print(f"  Parsed {len(self.vertices)} vertices, {len(self.faces)} faces")
+        
+        # Parse animations (same format as legacy)
+        for i in range(self.anim_count):
+            block_size = struct.unpack_from('<I', self.data, offset)[0]
+            anim_offset = offset + 4
+            
+            print(f"\nParsing animation {i} at offset {anim_offset} (block size: {block_size})")
+            
+            anim = Animation.from_bytes(self.data, anim_offset, self.bone_count)
+            self.animations.append(anim)
+            
+            print(f"  Name: '{anim.name}', Keyframes: {anim.keyframe_count}")
+            
+            offset += block_size
+
     def export_gltf(self, filename: str):
         """Export parsed model to glTF 2.0 format with skeletal animation"""
+        if self.is_skinned:
+            self._export_skinned_gltf(filename)
+        else:
+            self._export_legacy_gltf(filename)
+
+    def _export_legacy_gltf(self, filename: str):
+        """Export legacy AAMF format to glTF"""
         if not self.bones:
             print("No bones to export!")
             return
@@ -1028,6 +1158,330 @@ class AAMFParser:
         print(f"\nExported to {filename}")
         print(f"  Bones: {len(self.bones)}")
         print(f"  Animations:  {len(self. animations)}")
+        print(f"  Vertices: {len(all_positions) // 3}")
+        print(f"  Triangles: {len(all_indices) // 3}")
+
+    def _export_skinned_gltf(self, filename: str):
+        """Export skinned AAMF format to glTF with proper vertex weights"""
+        if not self.vertices:
+            print("No vertices to export!")
+            return
+        
+        # Build vertex data with proper skinning
+        all_positions = []
+        all_normals = []
+        all_indices = []
+        all_joints = []
+        all_weights = []
+        
+        # Add all vertices with their skin weights
+        for i, face in enumerate(self.faces):
+            for v_idx in face:
+                pos = self.vertices[v_idx]
+                all_positions.extend(pos)
+                
+                normal = self.normals[v_idx] if v_idx < len(self.normals) else (0.0, 1.0, 0.0)
+                all_normals.extend(normal)
+                
+                # Get skin weight for this vertex
+                sw = self.skin_weights[v_idx] if v_idx < len(self.skin_weights) else SkinWeight([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0])
+                all_joints.extend(sw.bone_indices)
+                all_weights.extend(sw.weights)
+                
+                all_indices.append(len(all_positions) // 3 - 1)
+        
+        if not all_positions:
+            print("No geometry to export!")
+            return
+        
+        # Calculate bounds
+        min_pos = [float('inf'), float('inf'), float('inf')]
+        max_pos = [float('-inf'), float('-inf'), float('-inf')]
+        
+        for i in range(0, len(all_positions), 3):
+            for j in range(3):
+                min_pos[j] = min(min_pos[j], all_positions[i + j])
+                max_pos[j] = max(max_pos[j], all_positions[i + j])
+        
+        # Create binary buffers
+        position_bytes = struct.pack(f'<{len(all_positions)}f', *all_positions)
+        normal_bytes = struct.pack(f'<{len(all_normals)}f', *all_normals)
+        index_bytes = struct.pack(f'<{len(all_indices)}I', *all_indices)
+        joints_bytes = struct.pack(f'<{len(all_joints)}H', *all_joints)
+        weights_bytes = struct.pack(f'<{len(all_weights)}f', *all_weights)
+        
+        def pad_to_4(data: bytes) -> bytes:
+            padding = (4 - len(data) % 4) % 4
+            return data + b'\x00' * padding
+        
+        position_bytes = pad_to_4(position_bytes)
+        normal_bytes = pad_to_4(normal_bytes)
+        index_bytes = pad_to_4(index_bytes)
+        joints_bytes = pad_to_4(joints_bytes)
+        weights_bytes = pad_to_4(weights_bytes)
+        
+        # Create inverse bind matrices from bind poses
+        inverse_bind_matrices = []
+        for bind_pose in self.bind_poses:
+            # Convert bind pose MATRIX to inverse bind matrix
+            # For simplicity, we'll use identity matrices for now
+            # In production, you'd invert the bind pose matrices
+            inverse_bind_matrices.extend([
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 1.0
+            ])
+        
+        ibm_bytes = struct.pack(f'<{len(inverse_bind_matrices)}f', *inverse_bind_matrices)
+        ibm_bytes = pad_to_4(ibm_bytes)
+        
+        # Create animation data (same as legacy)
+        animation_buffer = b''
+        animations_gltf = []
+        
+        current_accessor = 6
+        current_buffer_offset = len(position_bytes) + len(normal_bytes) + len(index_bytes) + len(joints_bytes) + len(weights_bytes) + len(ibm_bytes)
+        
+        buffer_views = []
+        accessors = []
+        
+        # Add mesh buffer views
+        buffer_views.extend([
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(position_bytes), "target": 34962},
+            {"buffer": 0, "byteOffset": len(position_bytes), "byteLength": len(normal_bytes), "target": 34962},
+            {"buffer": 0, "byteOffset": len(position_bytes) + len(normal_bytes), "byteLength": len(index_bytes), "target": 34963},
+            {"buffer": 0, "byteOffset": len(position_bytes) + len(normal_bytes) + len(index_bytes), "byteLength": len(joints_bytes), "target": 34962},
+            {"buffer": 0, "byteOffset": len(position_bytes) + len(normal_bytes) + len(index_bytes) + len(joints_bytes), "byteLength": len(weights_bytes), "target": 34962},
+            {"buffer": 0, "byteOffset": len(position_bytes) + len(normal_bytes) + len(index_bytes) + len(joints_bytes) + len(weights_bytes), "byteLength": len(ibm_bytes)},
+        ])
+        
+        # Add mesh accessors
+        accessors.extend([
+            {"bufferView": 0, "byteOffset": 0, "componentType": 5126, "count": len(all_positions) // 3, "type": "VEC3", "min": min_pos, "max": max_pos},
+            {"bufferView": 1, "byteOffset": 0, "componentType": 5126, "count": len(all_normals) // 3, "type": "VEC3"},
+            {"bufferView": 2, "byteOffset": 0, "componentType": 5125, "count": len(all_indices), "type": "SCALAR"},
+            {"bufferView": 3, "byteOffset": 0, "componentType": 5123, "count": len(all_joints) // 4, "type": "VEC4"},
+            {"bufferView": 4, "byteOffset": 0, "componentType": 5126, "count": len(all_weights) // 4, "type": "VEC4"},
+            {"bufferView": 5, "byteOffset": 0, "componentType": 5126, "count": self.bone_count, "type": "MAT4"},
+        ])
+        
+        # Process animations (same as legacy)
+        for anim in self.animations:
+            if anim.keyframe_count == 0:
+                continue
+            
+            fps = 30.0
+            times = [i / fps for i in range(anim.keyframe_count)]
+            time_bytes = struct.pack(f'<{len(times)}f', *times)
+            time_bytes = pad_to_4(time_bytes)
+            
+            time_buffer_view_idx = len(buffer_views)
+            buffer_views.append({
+                "buffer": 0,
+                "byteOffset": current_buffer_offset,
+                "byteLength": len(time_bytes)
+            })
+            
+            time_accessor_idx = len(accessors)
+            accessors.append({
+                "bufferView": time_buffer_view_idx,
+                "byteOffset": 0,
+                "componentType": 5126,
+                "count": len(times),
+                "type": "SCALAR",
+                "min": [times[0]],
+                "max": [times[-1]]
+            })
+            
+            animation_buffer += time_bytes
+            current_buffer_offset += len(time_bytes)
+            
+            samplers = []
+            channels = []
+            
+            for bone_idx in range(self.bone_count):
+                translations = []
+                rotations = []
+                
+                for kf_idx in range(anim.keyframe_count):
+                    kf = anim.keyframes[bone_idx][kf_idx]
+                    trans = kf.mat.to_translation()
+                    quat = kf.mat.to_quaternion()
+                    
+                    translations.extend(trans)
+                    rotations.extend(quat)
+                
+                # Add translation data
+                trans_bytes = struct.pack(f'<{len(translations)}f', *translations)
+                trans_bytes = pad_to_4(trans_bytes)
+                
+                trans_buffer_view_idx = len(buffer_views)
+                buffer_views.append({
+                    "buffer": 0,
+                    "byteOffset": current_buffer_offset,
+                    "byteLength": len(trans_bytes)
+                })
+                
+                trans_accessor_idx = len(accessors)
+                accessors.append({
+                    "bufferView": trans_buffer_view_idx,
+                    "byteOffset": 0,
+                    "componentType": 5126,
+                    "count": anim.keyframe_count,
+                    "type": "VEC3"
+                })
+                
+                animation_buffer += trans_bytes
+                current_buffer_offset += len(trans_bytes)
+                
+                # Add rotation data
+                rot_bytes = struct.pack(f'<{len(rotations)}f', *rotations)
+                rot_bytes = pad_to_4(rot_bytes)
+                
+                rot_buffer_view_idx = len(buffer_views)
+                buffer_views.append({
+                    "buffer": 0,
+                    "byteOffset": current_buffer_offset,
+                    "byteLength": len(rot_bytes)
+                })
+                
+                rot_accessor_idx = len(accessors)
+                accessors.append({
+                    "bufferView": rot_buffer_view_idx,
+                    "byteOffset": 0,
+                    "componentType": 5126,
+                    "count": anim.keyframe_count,
+                    "type": "VEC4"
+                })
+                
+                animation_buffer += rot_bytes
+                current_buffer_offset += len(rot_bytes)
+                
+                # Add samplers
+                trans_sampler_idx = len(samplers)
+                samplers.append({
+                    "input": time_accessor_idx,
+                    "output": trans_accessor_idx,
+                    "interpolation": "LINEAR"
+                })
+                
+                rot_sampler_idx = len(samplers)
+                samplers.append({
+                    "input": time_accessor_idx,
+                    "output": rot_accessor_idx,
+                    "interpolation": "LINEAR"
+                })
+                
+                # Add channels
+                target_node = bone_idx + 2
+                channels.append({
+                    "sampler": trans_sampler_idx,
+                    "target": {"node": target_node, "path": "translation"}
+                })
+                channels.append({
+                    "sampler": rot_sampler_idx,
+                    "target": {"node": target_node, "path": "rotation"}
+                })
+            
+            animations_gltf.append({
+                "name": anim.name,
+                "samplers": samplers,
+                "channels": channels
+            })
+        
+        # Combine all buffers
+        buffer_data = position_bytes + normal_bytes + index_bytes + joints_bytes + weights_bytes + ibm_bytes + animation_buffer
+        buffer_base64 = base64.b64encode(buffer_data).decode('ascii')
+        
+        # Build node hierarchy
+        nodes = []
+        joint_indices = []
+        
+        # Root node with mesh and skin
+        nodes.append({
+            "name": "SkinnedAAMFModel",
+            "mesh": 0,
+            "skin": 0
+        })
+        
+        # Skeleton root node
+        skeleton_root_idx = 1
+        nodes.append({
+            "name": "Skeleton",
+            "children": []
+        })
+        
+        # Add bone nodes
+        bone_node_indices = {}
+        for bone_idx, (bone_index, parent_index) in enumerate(self.bone_parents):
+            node_idx = len(nodes)
+            bone_node_indices[bone_index] = node_idx
+            joint_indices.append(node_idx)
+            
+            node = {"name": f"Bone_{bone_index}"}
+            nodes.append(node)
+        
+        # Set up parent-child relationships
+        for bone_idx, (bone_index, parent_index) in enumerate(self.bone_parents):
+            node_idx = bone_node_indices[bone_index]
+            if bone_index == parent_index:
+                # Root bone
+                nodes[skeleton_root_idx]["children"].append(node_idx)
+            else:
+                parent_node_idx = bone_node_indices.get(parent_index)
+                if parent_node_idx is not None:
+                    if "children" not in nodes[parent_node_idx]:
+                        nodes[parent_node_idx]["children"] = []
+                    nodes[parent_node_idx]["children"].append(node_idx)
+        
+        # Build glTF structure
+        gltf = {
+            "asset": {
+                "version": "2.0",
+                "generator": "aamf2gltf.py - UnnamedHB1 Skinned AAMF Converter"
+            },
+            "scene": 0,
+            "scenes": [{"name": "Scene", "nodes": [0, skeleton_root_idx]}],
+            "nodes": nodes,
+            "meshes": [{
+                "name": "SkinnedAAMFMesh",
+                "primitives": [{
+                    "attributes": {
+                        "POSITION": 0,
+                        "NORMAL": 1,
+                        "JOINTS_0": 3,
+                        "WEIGHTS_0": 4
+                    },
+                    "indices": 2,
+                    "mode": 4
+                }]
+            }],
+            "skins": [{
+                "name": "AAMFSkin",
+                "inverseBindMatrices": 5,
+                "skeleton": skeleton_root_idx,
+                "joints": joint_indices
+            }],
+            "accessors": accessors,
+            "bufferViews": buffer_views,
+            "buffers": [{
+                "uri": f"data:application/octet-stream;base64,{buffer_base64}",
+                "byteLength": len(buffer_data)
+            }]
+        }
+        
+        if animations_gltf:
+            gltf["animations"] = animations_gltf
+        
+        # Write glTF JSON file
+        with open(filename, 'w') as f:
+            json.dump(gltf, f, indent=2)
+        
+        print(f"\nExported skinned AAMF to {filename}")
+        print(f"  Format version: {self.format_version}")
+        print(f"  Bones: {self.bone_count}")
+        print(f"  Animations: {len(self.animations)}")
         print(f"  Vertices: {len(all_positions) // 3}")
         print(f"  Triangles: {len(all_indices) // 3}")
 

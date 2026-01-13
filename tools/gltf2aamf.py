@@ -179,7 +179,7 @@ def triangle_to_degenerate_quad(tri, tri_idx=-1):
 
 
 class GltfParser: 
-    def __init__(self, filename):
+    def __init__(self, filename, skinned_mode=False):
         self.filename = filename
         self.gltf = {}
         self.buffers = []
@@ -187,6 +187,12 @@ class GltfParser:
         self.animations = []
         self.node_to_bone = {}
         self.joint_nodes = []
+        self.skinned_mode = skinned_mode
+        # For skinned mode
+        self.unified_vertices = []
+        self.unified_normals = []
+        self.unified_weights = []
+        self.unified_faces = []
         
     def load(self):
         if self.filename.lower().endswith('.glb'):
@@ -271,6 +277,104 @@ class GltfParser:
         return animated_nodes
     
     def _parse_scene(self):
+        if self.skinned_mode:
+            self._parse_scene_skinned()
+        else:
+            self._parse_scene_legacy()
+    
+    def _parse_scene_skinned(self):
+        """Parse scene for skinned AAMF export"""
+        mesh_node = None
+        skin_data = None
+        
+        for node in self.gltf.get('nodes', []):
+            if 'mesh' in node:
+                mesh_node = node
+                if 'skin' in node:
+                    skin_data = self.gltf['skins'][node['skin']]
+                break
+        
+        if not mesh_node:
+            print("No mesh found in glTF file!")
+            return
+        
+        if skin_data:
+            self.joint_nodes = skin_data.get('joints', [])
+        
+        mesh = self.gltf['meshes'][mesh_node['mesh']]
+        
+        # Get animated nodes to establish bone ordering
+        animated_nodes = self._get_animated_nodes()
+        
+        # Build bone structure based on animated nodes
+        for bone_idx, node_idx in enumerate(animated_nodes):
+            self.node_to_bone[node_idx] = bone_idx
+        
+        # Parse mesh primitives to get vertices, normals, weights, and faces
+        for primitive in mesh.get('primitives', []):
+            positions = self._get_accessor_data(primitive['attributes']['POSITION'])
+            
+            normals = [(0.0, 1.0, 0.0)] * len(positions)
+            if 'NORMAL' in primitive['attributes']:
+                normals = self._get_accessor_data(primitive['attributes']['NORMAL'])
+            
+            joints_data = [(0, 0, 0, 0)] * len(positions)
+            weights_data = [(1.0, 0.0, 0.0, 0.0)] * len(positions)
+            
+            if 'JOINTS_0' in primitive['attributes']:
+                joints_data = self._get_accessor_data(primitive['attributes']['JOINTS_0'])
+            if 'WEIGHTS_0' in primitive['attributes']:
+                weights_data = self._get_accessor_data(primitive['attributes']['WEIGHTS_0'])
+            
+            # Store vertices, normals, and weights
+            vertex_offset = len(self.unified_vertices)
+            self.unified_vertices.extend(positions)
+            self.unified_normals.extend(normals)
+            self.unified_weights.extend(zip(joints_data, weights_data))
+            
+            # Parse faces
+            indices = self._get_accessor_data(primitive['indices']) if 'indices' in primitive else list(range(len(positions)))
+            
+            for i in range(0, len(indices), 3):
+                if i + 2 >= len(indices):
+                    break
+                
+                i0, i1, i2 = indices[i], indices[i+1], indices[i+2]
+                # Adjust indices by vertex offset
+                self.unified_faces.append([vertex_offset + i0, vertex_offset + i1, vertex_offset + i2])
+        
+        # Build bone hierarchy
+        bone_parents = {}
+        num_bones = len(animated_nodes)
+        
+        # Create a mapping from node index to joint index
+        node_to_joint_idx = {node_idx: joint_idx for joint_idx, node_idx in enumerate(self.joint_nodes)}
+        
+        for bone_idx, node_idx in enumerate(animated_nodes):
+            bone_parents[bone_idx] = bone_idx  # default: self (root)
+            
+            # Find the parent node in the glTF hierarchy
+            for potential_parent_node_idx, potential_parent in enumerate(self.gltf['nodes']):
+                if 'children' in potential_parent and node_idx in potential_parent['children']:
+                    # Check if this parent node is an animated bone
+                    if potential_parent_node_idx in self.node_to_bone:
+                        bone_parents[bone_idx] = self.node_to_bone[potential_parent_node_idx]
+                    break
+        
+        # Create bones with empty quads (not used in skinned mode)
+        for bone_idx in range(num_bones):
+            parent_idx = bone_parents.get(bone_idx, bone_idx)
+            bone = Bone(index=bone_idx, parent_index=parent_idx, quads=[])
+            self.bones.append(bone)
+            print(f"Bone {bone_idx}: parent={parent_idx}")
+        
+        print(f"\nParsed skinned mesh:")
+        print(f"  Bones: {len(self.bones)}")
+        print(f"  Vertices: {len(self.unified_vertices)}")
+        print(f"  Faces: {len(self.unified_faces)}")
+    
+    def _parse_scene_legacy(self):
+        """Parse scene for legacy AAMF export"""
         mesh_node = None
         skin_data = None
         
@@ -446,9 +550,11 @@ class GltfParser:
 
 
 class AAMFWriter: 
-    def __init__(self, bones, animations):
+    def __init__(self, bones, animations, skinned_mode=False, parser=None):
         self.bones = bones
         self.animations = animations
+        self.skinned_mode = skinned_mode
+        self.parser = parser  # GltfParser instance for skinned data
     
     def _float_to_fixed(self, value):
         result = int(value * FIXED_POINT_SCALE)
@@ -547,6 +653,127 @@ class AAMFWriter:
         return data
     
     def write(self, filename):
+        if self.skinned_mode:
+            self._write_skinned(filename)
+        else:
+            self._write_legacy(filename)
+    
+    def _write_skinned(self, filename):
+        """Write skinned AAMF format"""
+        if not self.parser:
+            raise ValueError("Parser required for skinned mode")
+        
+        data = b''
+        
+        bone_count = len(self.bones)
+        anim_count = len(self.animations)
+        vertex_count = len(self.parser.unified_vertices)
+        face_count = len(self.parser.unified_faces)
+        
+        # Validate vertex bone influences (max 4 per vertex for PS1)
+        max_influences = 0
+        for joints, weights in self.parser.unified_weights:
+            # Count non-zero weights
+            non_zero = sum(1 for w in weights if w > 0.001)
+            max_influences = max(max_influences, non_zero)
+        
+        if max_influences > 4:
+            print(f"Warning: Found {max_influences} bone influences per vertex, clamping to 4")
+        
+        # Header (16 bytes)
+        data += b'SAMF'  # Magic for skinned format
+        data += struct.pack('<H', 2)  # Version 2
+        data += struct.pack('<H', bone_count)
+        data += struct.pack('<H', anim_count)
+        data += struct.pack('<I', vertex_count)
+        data += struct.pack('<H', face_count)
+        
+        # Bone parent table
+        for bone in self.bones:
+            data += struct.pack('<HH', bone.index, bone.parent_index)
+        
+        # Bind pose transforms (identity for now)
+        for bone in self.bones:
+            # Identity matrix in MATRIX format
+            # 3x3 rotation (identity)
+            for row in range(3):
+                for col in range(3):
+                    if row == col:
+                        data += struct.pack('<h', self._float_to_fixed(1.0))
+                    else:
+                        data += struct.pack('<h', 0)
+            # Padding
+            data += struct.pack('<h', 0)
+            # Translation (zero)
+            data += struct.pack('<iii', 0, 0, 0)
+        
+        # Unified mesh data - Vertices
+        for pos in self.parser.unified_vertices:
+            data += self._write_svector(
+                self._float_to_fixed(pos[0]),
+                self._float_to_fixed(pos[1]),
+                self._float_to_fixed(pos[2])
+            )
+        
+        # Normals
+        for normal in self.parser.unified_normals:
+            data += self._write_svector(
+                self._float_to_fixed(normal[0]),
+                self._float_to_fixed(normal[1]),
+                self._float_to_fixed(normal[2])
+            )
+        
+        # Skin weights
+        for joints, weights in self.parser.unified_weights:
+            # Normalize weights and clamp to 4 influences
+            bone_indices = list(joints[:4])
+            bone_weights = list(weights[:4])
+            
+            # Pad to 4 if necessary
+            while len(bone_indices) < 4:
+                bone_indices.append(0)
+                bone_weights.append(0.0)
+            
+            # Normalize weights to sum to 1.0
+            total_weight = sum(bone_weights)
+            if total_weight > 0.001:
+                bone_weights = [w / total_weight for w in bone_weights]
+            else:
+                bone_weights = [1.0, 0.0, 0.0, 0.0]
+            
+            # Write bone indices (4 bytes)
+            for idx in bone_indices:
+                data += struct.pack('<B', min(255, max(0, idx)))
+            
+            # Write weights (4 bytes, normalized 0-255)
+            for w in bone_weights:
+                weight_byte = int(w * 255.0)
+                data += struct.pack('<B', min(255, max(0, weight_byte)))
+        
+        # Faces
+        for face in self.parser.unified_faces:
+            data += struct.pack('<HHH', face[0], face[1], face[2])
+        
+        # Animations (same format as legacy)
+        for anim in self.animations:
+            anim_data = self._write_animation(anim)
+            data += struct.pack('<I', 4 + len(anim_data))
+            data += anim_data
+        
+        with open(filename, 'wb') as f:
+            f.write(data)
+        
+        print(f"\nExported skinned AAMF to {filename}")
+        print(f"  Format: SAMF v2 (skinned)")
+        print(f"  Bones: {bone_count}")
+        print(f"  Animations: {anim_count}")
+        print(f"  Vertices: {vertex_count}")
+        print(f"  Faces: {face_count}")
+        print(f"  Max bone influences per vertex: {max_influences}")
+        print(f"  File size: {len(data)} bytes")
+    
+    def _write_legacy(self, filename):
+        """Write legacy AAMF format"""
         data = b''
         
         bone_count = len(self. bones)
@@ -581,31 +808,39 @@ def main():
     global DEBUG_MODE
     
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} input.gltf [output. aamf] [--debug]")
+        print(f"Usage: {sys.argv[0]} input.gltf [output.aamf] [--skinned] [--debug]")
+        print("\nOptions:")
+        print("  --skinned  Export in new skinned AAMF format (SAMF) with vertex weights")
+        print("  --debug    Enable debug output")
+        print("\nDefault behavior exports legacy AAMF format (one mesh per bone)")
         sys.exit(1)
     
     input_file = sys.argv[1]
     output_file = None
+    skinned_mode = False
     
     for arg in sys.argv[2:]:
         if arg == '--debug':
             DEBUG_MODE = True
+        elif arg == '--skinned':
+            skinned_mode = True
         elif not output_file:
             output_file = arg
     
     if not output_file:
-        output_file = os.path.splitext(input_file)[0] + ". aamf"
+        output_file = os.path.splitext(input_file)[0] + ".aamf"
     
     print(f"Reading {input_file}")
+    print(f"Export mode: {'Skinned AAMF (SAMF)' if skinned_mode else 'Legacy AAMF'}")
     
-    parser = GltfParser(input_file)
+    parser = GltfParser(input_file, skinned_mode=skinned_mode)
     parser.load()
     
     print(f"\nParsed glTF:")
-    print(f"  Bones:  {len(parser. bones)}")
+    print(f"  Bones: {len(parser.bones)}")
     print(f"  Animations: {len(parser.animations)}")
     
-    writer = AAMFWriter(parser.bones, parser.animations)
+    writer = AAMFWriter(parser.bones, parser.animations, skinned_mode=skinned_mode, parser=parser)
     writer.write(output_file)
 
 
