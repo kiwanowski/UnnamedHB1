@@ -64,7 +64,7 @@ int tri_clip(RECT *clip, DVECTOR *v0, DVECTOR *v1, DVECTOR *v2) {
 	
 	// Returns non-zero if a triangle is outside the screen boundaries
 	
-	short c[3];
+	int c[3];
 
 	c[0] = test_clip(clip, v0->vx, v0->vy);
 	c[1] = test_clip(clip, v1->vx, v1->vy);
@@ -83,7 +83,7 @@ int tri_clip(RECT *clip, DVECTOR *v0, DVECTOR *v1, DVECTOR *v2) {
 int quad_clip(RECT *clip, DVECTOR *v0, DVECTOR *v1, DVECTOR *v2, DVECTOR *v3) {
 	// Returns non-zero if a quad is outside the screen boundaries
 	
-	short c[4];
+	int c[4];
 
 	c[0] = test_clip(clip, v0->vx, v0->vy);
 	c[1] = test_clip(clip, v1->vx, v1->vy);

@@ -10,15 +10,17 @@ RenderContext ctx;
 #define SCREEN_YRES (240)
 
 void setup_context(RenderContext *ctx, int w, int h, int r, int g, int b) {
+	const int sw = w * (ctx->render_mode + 1);
+	const int sh = h * (ctx->render_mode + 1);
 	// Place the two framebuffers vertically in VRAM.
-	SetDefDrawEnv(&(ctx->buffers[0].draw_env), 0, 0, w*(ctx->render_mode+1), h*(ctx->render_mode+1));
-	SetDefDispEnv(&(ctx->buffers[0].disp_env), 0, 0, w*(ctx->render_mode+1), h*(ctx->render_mode+1));
+	SetDefDrawEnv(&(ctx->buffers[0].draw_env), 0, 0, sw, sh);
+	SetDefDispEnv(&(ctx->buffers[0].disp_env), 0, 0, sw, sh);
 	if (ctx->render_mode) {
-		SetDefDrawEnv(&(ctx->buffers[1].draw_env), 0, 0, w*(ctx->render_mode+1), h*(ctx->render_mode+1));
-		SetDefDispEnv(&(ctx->buffers[1].disp_env), 0, 0, w*(ctx->render_mode+1), h*(ctx->render_mode+1));
+		SetDefDrawEnv(&(ctx->buffers[1].draw_env), 0, 0, sw, sh);
+		SetDefDispEnv(&(ctx->buffers[1].disp_env), 0, 0, sw, sh);
 	} else {
-		SetDefDrawEnv(&(ctx->buffers[1].draw_env), 0, h, w*(ctx->render_mode+1), h*(ctx->render_mode+1));
-		SetDefDispEnv(&(ctx->buffers[1].disp_env), 0, h, w*(ctx->render_mode+1), h*(ctx->render_mode+1));
+		SetDefDrawEnv(&(ctx->buffers[1].draw_env), 0, h, sw, sh);
+		SetDefDispEnv(&(ctx->buffers[1].disp_env), 0, h, sw, sh);
 	}
 
 	// Set the default background color and enable auto-clearing.
@@ -38,7 +40,7 @@ void setup_context(RenderContext *ctx, int w, int h, int r, int g, int b) {
 	ClearOTagR(ctx->buffers[0].ui_ot, UI_OT_LENGTH);
 
 	ctx->screen_clip = (RECT*)(0x1F800000);
-	setRECT(ctx->screen_clip, -10, -10, w*(ctx->render_mode+1)+10, h*(ctx->render_mode+1)+10);
+	setRECT(ctx->screen_clip, -10, -10, sw + 10, sh + 10);
 
 	// Turn on the video output.
 	SetDispMask(1);

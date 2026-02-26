@@ -1,7 +1,7 @@
 #include "pellet.h"
 
-#define MIN(x, y) ((y) ^ (((x) ^ (y)) & -((x) < (y))))
-#define MAX(x, y) ((x) ^ (((x) ^ (y)) & -((x) < (y))))
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 extern AMF pellet_amf;
 extern SFX collect_sfx;

@@ -3,81 +3,29 @@
 AMF to OBJ Converter for UnnamedHB1 PlayStation 1 Model Format
 
 This script converts AMF (Animated Model Format) files from the UnnamedHB1
-PS1 homebrew game to Wavefront OBJ format. 
+PS1 homebrew game to Wavefront OBJ format.
 
 AMF format specification derived from:
 https://github.com/achrostel/UnnamedHB1
 
 Usage:
-    python amf2obj. py input.amf [output.obj]
+    python amf2obj.py input.amf [output.obj]
+    python amf2obj.py input.amf [output.obj] --debug  # Enable verbose polygon debug
 """
 
 import struct
 import sys
 import os
+import argparse
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
-
-@dataclass
-class SVECTOR:
-    """Short vector (8 bytes) - used for vertices and normals"""
-    vx: int  # int16_t
-    vy: int  # int16_t
-    vz:  int  # int16_t
-    pad:  int  # int16_t (flags:  depth check type, subdiv depth, culling mode)
-
-    @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'SVECTOR': 
-        vx, vy, vz, pad = struct. unpack_from('<hhhh', data, offset)
-        return cls(vx, vy, vz, pad)
-
-    def to_float(self, scale: float = 1.0 / 4096.0) -> Tuple[float, float, float]:
-        """Convert fixed-point to floating point coordinates"""
-        return (self.vx * scale, self. vy * scale, self.vz * scale)
+from amf_types import SVECTOR, CVECTOR, WorldBounds, AMFHeader
+from amf_types import SVECTOR_SIZE, CVECTOR_SIZE, POINTER_SIZE
 
 
-@dataclass
-class CVECTOR:
-    """Color vector (4 bytes)"""
-    r:  int  # uint8_t
-    g: int  # uint8_t
-    b: int  # uint8_t
-    cd: int  # uint8_t (code/alpha)
-
-    @classmethod
-    def from_bytes(cls, data: bytes, offset:  int = 0) -> 'CVECTOR':
-        r, g, b, cd = struct.unpack_from('<BBBB', data, offset)
-        return cls(r, g, b, cd)
-
-
-@dataclass
-class WorldBounds:
-    """World bounding box (16 bytes)"""
-    minX: int  # int32_t
-    minZ: int  # int32_t
-    maxX: int  # int32_t
-    maxZ:  int  # int32_t
-
-    @classmethod
-    def from_bytes(cls, data: bytes, offset: int = 0) -> 'WorldBounds': 
-        minX, minZ, maxX, maxZ = struct. unpack_from('<iiii', data, offset)
-        return cls(minX, minZ, maxX, maxZ)
-
-
-@dataclass
-class AMFHeader:
-    """AMF file header (24 bytes)"""
-    used_textures: int  # uint32_t (highest bit for Texture* already set)
-    x:  int  # uint16_t (chunk count in X)
-    z: int  # uint16_t (chunk count in Z)
-    bounds: WorldBounds
-
-    @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'AMFHeader':
-        used_textures, x, z = struct.unpack_from('<IHH', data, offset)
-        bounds = WorldBounds. from_bytes(data, offset + 8)
-        return cls(used_textures & 0x7FFFFFFF, x, z, bounds)
+# Global debug flag
+DEBUG_POLYGONS = False
 
 
 @dataclass
@@ -89,19 +37,18 @@ class ChunkHeader:
     GT4_amount: int  # uint16_t
     F3_amount: int   # uint16_t
     G3_amount: int   # uint16_t
-    FT3_amount:  int  # uint16_t
+    FT3_amount: int  # uint16_t
     GT3_amount: int  # uint16_t
 
     @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'ChunkHeader':
+    def from_bytes(cls, data: bytes, offset: int = 0) -> 'ChunkHeader':
         counts = struct.unpack_from('<HHHHHHHH', data, offset)
         return cls(*counts)
 
+    def total_polygons(self) -> int:
+        return (self.F4_amount + self.G4_amount + self.FT4_amount + self.GT4_amount +
+                self.F3_amount + self.G3_amount + self.FT3_amount + self.GT3_amount)
 
-# Structure sizes based on PSn00bSDK and UnnamedHB1 definitions
-SVECTOR_SIZE = 8
-CVECTOR_SIZE = 4
-POINTER_SIZE = 4
 
 # POLY_* GPU primitive sizes (with 4-byte tag included)
 # From PSn00bSDK psxgpu.h - each has a uint32_t tag prefix
@@ -147,24 +94,41 @@ PGT3_SIZE = 3 * SVECTOR_SIZE + 3 * SVECTOR_SIZE + POINTER_SIZE + POLY_GT3_SIZE
 PGT4_SIZE = 4 * SVECTOR_SIZE + 4 * SVECTOR_SIZE + 4 * CVECTOR_SIZE + POINTER_SIZE + POLY_GT4_SIZE
 
 
+def debug_print(*args, **kwargs):
+    """Print only if debug mode is enabled"""
+    if DEBUG_POLYGONS:
+        print(*args, **kwargs)
+
+
+def hex_dump(data: bytes, offset: int, length: int, prefix: str = "    ") -> str:
+    """Create a hex dump of raw bytes for debugging"""
+    raw = data[offset:offset + length]
+    hex_str = ' '.join(f'{b:02X}' for b in raw)
+    return f"{prefix}Raw bytes @ 0x{offset:08X}: {hex_str}"
+
+
 class AMFParser:
     """Parser for AMF model files"""
 
     def __init__(self, data: bytes):
         self.data = data
-        self.header:  Optional[AMFHeader] = None
+        self.header: Optional[AMFHeader] = None
         self.texture_names: List[str] = []
         self.vertices: List[Tuple[float, float, float]] = []
         self.normals: List[Tuple[float, float, float]] = []
         self.faces: List[List[int]] = []  # Each face is a list of vertex indices
         self.face_normals: List[List[int]] = []  # Normal indices per face
 
+        # Debug statistics
+        self.polygon_count = 0
+        self.chunk_polygon_counts = {}
+
     def parse(self):
         """Parse the AMF file"""
         # Parse header
         self.header = AMFHeader.from_bytes(self.data, 0)
         print(f"AMF Header:")
-        print(f"  Textures: {self. header.used_textures}")
+        print(f"  Textures: {self.header.used_textures}")
         print(f"  Chunks: {self.header.x} x {self.header.z}")
         print(f"  Bounds: ({self.header.bounds.minX}, {self.header.bounds.minZ}) to "
               f"({self.header.bounds.maxX}, {self.header.bounds.maxZ})")
@@ -173,14 +137,14 @@ class AMFParser:
         offset = 8 + 16  # Header size + WorldBounds size
         for i in range(self.header.used_textures):
             name_bytes = self.data[offset:offset + 8]
-            name = name_bytes. rstrip(b'\x00').decode('ascii', errors='replace')
+            name = name_bytes.rstrip(b'\x00').decode('ascii', errors='replace')
             self.texture_names.append(name)
             offset += 8
 
-        print(f"  Texture names:  {self.texture_names}")
+        print(f"  Texture names: {self.texture_names}")
 
         # Parse chunk table and chunks
-        chunk_count = self.header. x * self.header.z
+        chunk_count = self.header.x * self.header.z
         chunk_table_offset = offset
 
         # The chunk table contains relative offsets/info for each chunk
@@ -190,9 +154,9 @@ class AMFParser:
         for chunk_idx in range(chunk_count):
             self._parse_chunk(chunk_idx, chunk_data_offset)
             # Calculate offset for next chunk based on current chunk's content
-            chunk_header = ChunkHeader.from_bytes(self. data, chunk_data_offset)
+            chunk_header = ChunkHeader.from_bytes(self.data, chunk_data_offset)
             chunk_size = 16 + 32  # header (16) + 8 pointers (32)
-            chunk_size += chunk_header. F4_amount * PF4_SIZE
+            chunk_size += chunk_header.F4_amount * PF4_SIZE
             chunk_size += chunk_header.G4_amount * PG4_SIZE
             chunk_size += chunk_header.FT4_amount * PFT4_SIZE
             chunk_size += chunk_header.GT4_amount * PGT4_SIZE
@@ -202,29 +166,61 @@ class AMFParser:
             chunk_size += chunk_header.GT3_amount * PGT3_SIZE
             chunk_data_offset += chunk_size
 
+        if DEBUG_POLYGONS:
+            print(f"\n{'='*60}")
+            print(f"POLYGON SUMMARY")
+            print(f"{'='*60}")
+            print(f"Total polygons parsed: {self.polygon_count}")
+            for chunk_idx, counts in self.chunk_polygon_counts.items():
+                print(f"  Chunk {chunk_idx}: {sum(counts.values())} polygons")
+                for poly_type, count in counts.items():
+                    if count > 0:
+                        print(f"    {poly_type}: {count}")
+
     def _parse_chunk(self, chunk_idx: int, offset: int):
         """Parse a single chunk"""
         # Read chunk header (first 16 bytes for counts, then 32 bytes for pointers which we skip)
-        chunk_header = ChunkHeader.from_bytes(self. data, offset)
+        chunk_header = ChunkHeader.from_bytes(self.data, offset)
 
-        print(f"\nChunk {chunk_idx}:")
-        print(f"  F4: {chunk_header.F4_amount}, G4: {chunk_header.G4_amount}")
-        print(f"  FT4: {chunk_header.FT4_amount}, GT4: {chunk_header. GT4_amount}")
-        print(f"  F3: {chunk_header. F3_amount}, G3: {chunk_header.G3_amount}")
-        print(f"  FT3: {chunk_header.FT3_amount}, GT3: {chunk_header.GT3_amount}")
+        if DEBUG_POLYGONS:
+            print(f"\n{'='*60}")
+            print(f"CHUNK {chunk_idx} @ offset 0x{offset:08X}")
+            print(f"{'='*60}")
+            print(f"  Polygon counts:")
+            print(f"    F4 (flat quad):              {chunk_header.F4_amount}")
+            print(f"    G4 (gouraud quad):           {chunk_header.G4_amount}")
+            print(f"    FT4 (flat textured quad):    {chunk_header.FT4_amount}")
+            print(f"    GT4 (gouraud textured quad): {chunk_header.GT4_amount}")
+            print(f"    F3 (flat tri):               {chunk_header.F3_amount}")
+            print(f"    G3 (gouraud tri):            {chunk_header.G3_amount}")
+            print(f"    FT3 (flat textured tri):     {chunk_header.FT3_amount}")
+            print(f"    GT3 (gouraud textured tri):  {chunk_header.GT3_amount}")
+            print(f"  Total polygons in chunk: {chunk_header.total_polygons()}")
+        else:
+            print(f"\nChunk {chunk_idx}:")
+            print(f"  F4: {chunk_header.F4_amount}, G4: {chunk_header.G4_amount}")
+            print(f"  FT4: {chunk_header.FT4_amount}, GT4: {chunk_header.GT4_amount}")
+            print(f"  F3: {chunk_header.F3_amount}, G3: {chunk_header.G3_amount}")
+            print(f"  FT3: {chunk_header.FT3_amount}, GT3: {chunk_header.GT3_amount}")
+
+        # Initialize chunk polygon count tracking
+        self.chunk_polygon_counts[chunk_idx] = {
+            'F4': 0, 'G4': 0, 'FT4': 0, 'GT4': 0,
+            'F3': 0, 'G3': 0, 'FT3': 0, 'GT3': 0
+        }
 
         # Skip the 8 pointers (32 bytes) that are set at runtime
         poly_offset = offset + 16 + 32  # Header (16) + 8 pointers (32)
 
         # Parse each polygon type in order (matching C code)
-        poly_offset = self._parse_f4_polys(poly_offset, chunk_header. F4_amount)
-        poly_offset = self._parse_g4_polys(poly_offset, chunk_header.G4_amount)
-        poly_offset = self._parse_ft4_polys(poly_offset, chunk_header.FT4_amount)
-        poly_offset = self._parse_gt4_polys(poly_offset, chunk_header.GT4_amount)
-        poly_offset = self._parse_f3_polys(poly_offset, chunk_header.F3_amount)
-        poly_offset = self._parse_g3_polys(poly_offset, chunk_header.G3_amount)
-        poly_offset = self._parse_ft3_polys(poly_offset, chunk_header. FT3_amount)
-        poly_offset = self._parse_gt3_polys(poly_offset, chunk_header. GT3_amount)
+        poly_offset = self._parse_f4_polys(poly_offset, chunk_header.F4_amount, chunk_idx)
+        poly_offset = self._parse_g4_polys(poly_offset, chunk_header.G4_amount, chunk_idx)
+        poly_offset = self._parse_ft4_polys(poly_offset, chunk_header.FT4_amount, chunk_idx)
+        poly_offset = self._parse_gt4_polys(poly_offset, chunk_header.GT4_amount, chunk_idx)
+        poly_offset = self._parse_f3_polys(poly_offset, chunk_header.F3_amount, chunk_idx)
+        poly_offset = self._parse_g3_polys(poly_offset, chunk_header.G3_amount, chunk_idx)
+        poly_offset = self._parse_ft3_polys(poly_offset, chunk_header.FT3_amount, chunk_idx)
+        poly_offset = self._parse_gt3_polys(poly_offset, chunk_header.GT3_amount, chunk_idx)
 
     def _add_vertex(self, sv: SVECTOR) -> int:
         """Add a vertex and return its 1-based index (for OBJ format)"""
@@ -236,13 +232,145 @@ class AMFParser:
         self.normals.append(sv.to_float())
         return len(self.normals)
 
-    def _parse_f4_polys(self, offset: int, count:  int) -> int:
+    def _parse_poly_gpu_data(self, offset: int, poly_type: str, size: int) -> dict:
+        """Parse GPU primitive data for debugging"""
+        gpu_data = {}
+        pos = offset
+
+        tag = struct.unpack_from('<I', self.data, pos)[0]
+        gpu_data['tag'] = tag
+        pos += 4
+
+        if poly_type in ('F3', 'F4', 'FT3', 'FT4'):
+            r, g, b, code = struct.unpack_from('<BBBB', self.data, pos)
+            gpu_data['color'] = (r, g, b, code)
+            pos += 4
+            vertex_count = 3 if poly_type in ('F3', 'FT3') else 4
+            gpu_data['xy'] = []
+            gpu_data['uv'] = [] if poly_type in ('FT3', 'FT4') else None
+            for i in range(vertex_count):
+                x, y = struct.unpack_from('<hh', self.data, pos)
+                gpu_data['xy'].append((x, y))
+                pos += 4
+                if poly_type in ('FT3', 'FT4'):
+                    u, v = struct.unpack_from('<BB', self.data, pos)
+                    gpu_data['uv'].append((u, v))
+                    pos += 2
+                    if i == 0:
+                        clut = struct.unpack_from('<H', self.data, pos)[0]
+                        gpu_data['clut'] = clut
+                        pos += 2
+                    elif i == 1:
+                        tpage = struct.unpack_from('<H', self.data, pos)[0]
+                        gpu_data['tpage'] = tpage
+                        pos += 2
+                    else:
+                        pos += 2  # padding
+        elif poly_type in ('G3', 'G4', 'GT3', 'GT4'):
+            vertex_count = 3 if poly_type in ('G3', 'GT3') else 4
+            gpu_data['colors'] = []
+            gpu_data['xy'] = []
+            gpu_data['uv'] = [] if poly_type in ('GT3', 'GT4') else None
+            for i in range(vertex_count):
+                r, g, b, code = struct.unpack_from('<BBBB', self.data, pos)
+                gpu_data['colors'].append((r, g, b, code))
+                pos += 4
+                x, y = struct.unpack_from('<hh', self.data, pos)
+                gpu_data['xy'].append((x, y))
+                pos += 4
+                if poly_type in ('GT3', 'GT4'):
+                    u, v = struct.unpack_from('<BB', self.data, pos)
+                    gpu_data['uv'].append((u, v))
+                    pos += 2
+                    if i == 0:
+                        clut = struct.unpack_from('<H', self.data, pos)[0]
+                        gpu_data['clut'] = clut
+                        pos += 2
+                    elif i == 1:
+                        tpage = struct.unpack_from('<H', self.data, pos)[0]
+                        gpu_data['tpage'] = tpage
+                        pos += 2
+                    else:
+                        pos += 2  # padding
+
+        return gpu_data
+
+    def _debug_polygon(self, poly_type: str, poly_idx: int, chunk_idx: int, offset: int,
+                       vertices: List[SVECTOR], normals: List[SVECTOR],
+                       colors: Optional[List[CVECTOR]] = None,
+                       texture_ptr: Optional[int] = None,
+                       gpu_offset: Optional[int] = None,
+                       gpu_size: Optional[int] = None):
+        """Print detailed debug information for a polygon"""
+        self.polygon_count += 1
+        self.chunk_polygon_counts[chunk_idx][poly_type] += 1
+
+        print(f"\n  --- {poly_type} Polygon #{poly_idx} (Global #{self.polygon_count}) ---")
+        print(f"  Offset: 0x{offset:08X}")
+
+        # Vertices
+        print(f"  Vertices ({len(vertices)}):")
+        for i, v in enumerate(vertices):
+            print(f"    V{i}: {v}")
+
+        # Normals
+        print(f"  Normals ({len(normals)}):")
+        for i, n in enumerate(normals):
+            print(f"    N{i}: {n}")
+
+        # Colors (if present)
+        if colors:
+            print(f"  Colors ({len(colors)}):")
+            for i, c in enumerate(colors):
+                print(f"    C{i}: {c}")
+
+        # Texture pointer (if present)
+        if texture_ptr is not None:
+            print(f"  Texture pointer: 0x{texture_ptr:08X}")
+            tex_idx = texture_ptr & 0x7FFFFFFF
+            if tex_idx < len(self.texture_names):
+                print(f"    -> Texture name: {self.texture_names[tex_idx]}")
+
+        # GPU primitive data
+        if gpu_offset is not None and gpu_size is not None:
+            gpu_data = self._parse_poly_gpu_data(gpu_offset, poly_type, gpu_size)
+            print(f"  GPU Primitive (POLY_{poly_type}) @ 0x{gpu_offset:08X}:")
+            print(f"    Tag: 0x{gpu_data.get('tag', 0):08X}")
+            if 'color' in gpu_data:
+                print(f"    Color: {gpu_data['color']}")
+            if 'colors' in gpu_data:
+                for i, c in enumerate(gpu_data['colors']):
+                    print(f"    Color{i}: {c}")
+            if 'xy' in gpu_data:
+                for i, xy in enumerate(gpu_data['xy']):
+                    print(f"    XY{i}: ({xy[0]}, {xy[1]})")
+            if gpu_data.get('uv'):
+                for i, uv in enumerate(gpu_data['uv']):
+                    print(f"    UV{i}: ({uv[0]}, {uv[1]})")
+            if 'clut' in gpu_data:
+                print(f"    CLUT: 0x{gpu_data['clut']:04X}")
+            if 'tpage' in gpu_data:
+                print(f"    TPage: 0x{gpu_data['tpage']:04X}")
+
+        # Raw hex dump
+        size_map = {
+            'F4': PF4_SIZE, 'G4': PG4_SIZE, 'FT4': PFT4_SIZE, 'GT4': PGT4_SIZE,
+            'F3': PF3_SIZE, 'G3': PG3_SIZE, 'FT3': PFT3_SIZE, 'GT3': PGT3_SIZE,
+        }
+        size = size_map.get(poly_type, 64)
+        debug_print(hex_dump(self.data, offset, min(size, 64)))
+
+    def _parse_f4_polys(self, offset: int, count: int, chunk_idx: int) -> int:
         """Parse flat-shaded quads (PF4)"""
-        for _ in range(count):
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} F4 (flat-shaded quad) polygons...")
+
+        for i in range(count):
+            start_offset = offset
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n = SVECTOR.from_bytes(self.data, offset + 32)
 
             # Add vertices
@@ -258,19 +386,29 @@ class AMFParser:
             self.face_normals.append([n_idx, n_idx, n_idx])
             self.face_normals.append([n_idx, n_idx, n_idx])
 
+            if DEBUG_POLYGONS:
+                gpu_offset = start_offset + 5 * SVECTOR_SIZE
+                self._debug_polygon('F4', i, chunk_idx, start_offset,
+                                    [v0, v1, v2, v3], [n],
+                                    gpu_offset=gpu_offset, gpu_size=POLY_F4_SIZE)
+
             offset += PF4_SIZE
         return offset
 
-    def _parse_g4_polys(self, offset: int, count: int) -> int:
+    def _parse_g4_polys(self, offset: int, count: int, chunk_idx: int) -> int:
         """Parse gouraud-shaded quads (PG4)"""
-        for _ in range(count):
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} G4 (gouraud-shaded quad) polygons...")
+
+        for i in range(count):
+            start_offset = offset
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
-            v2 = SVECTOR.from_bytes(self. data, offset + 16)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
             v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n0 = SVECTOR.from_bytes(self.data, offset + 32)
-            n1 = SVECTOR.from_bytes(self. data, offset + 40)
-            n2 = SVECTOR.from_bytes(self. data, offset + 48)
+            n1 = SVECTOR.from_bytes(self.data, offset + 40)
+            n2 = SVECTOR.from_bytes(self.data, offset + 48)
             n3 = SVECTOR.from_bytes(self.data, offset + 56)
 
             idx0 = self._add_vertex(v0)
@@ -283,19 +421,29 @@ class AMFParser:
             n_idx3 = self._add_normal(n3)
 
             self.faces.append([idx0, idx1, idx2])
-            self.faces. append([idx1, idx3, idx2])
-            self.face_normals. append([n_idx0, n_idx1, n_idx2])
-            self.face_normals. append([n_idx1, n_idx3, n_idx2])
+            self.faces.append([idx1, idx3, idx2])
+            self.face_normals.append([n_idx0, n_idx1, n_idx2])
+            self.face_normals.append([n_idx1, n_idx3, n_idx2])
+
+            if DEBUG_POLYGONS:
+                gpu_offset = start_offset + 8 * SVECTOR_SIZE
+                self._debug_polygon('G4', i, chunk_idx, start_offset,
+                                    [v0, v1, v2, v3], [n0, n1, n2, n3],
+                                    gpu_offset=gpu_offset, gpu_size=POLY_G4_SIZE)
 
             offset += PG4_SIZE
         return offset
 
-    def _parse_ft4_polys(self, offset: int, count: int) -> int:
+    def _parse_ft4_polys(self, offset: int, count: int, chunk_idx: int) -> int:
         """Parse flat-shaded textured quads (PFT4)"""
-        for _ in range(count):
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} FT4 (flat-shaded textured quad) polygons...")
+
+        for i in range(count):
+            start_offset = offset
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
-            v2 = SVECTOR. from_bytes(self.data, offset + 16)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
             v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n = SVECTOR.from_bytes(self.data, offset + 32)
 
@@ -306,24 +454,37 @@ class AMFParser:
             n_idx = self._add_normal(n)
 
             self.faces.append([idx0, idx1, idx2])
-            self.faces. append([idx1, idx3, idx2])
-            self.face_normals. append([n_idx, n_idx, n_idx])
+            self.faces.append([idx1, idx3, idx2])
             self.face_normals.append([n_idx, n_idx, n_idx])
+            self.face_normals.append([n_idx, n_idx, n_idx])
+
+            if DEBUG_POLYGONS:
+                tex_ptr_offset = start_offset + 5 * SVECTOR_SIZE
+                texture_ptr = struct.unpack_from('<I', self.data, tex_ptr_offset)[0]
+                gpu_offset = tex_ptr_offset + POINTER_SIZE
+                self._debug_polygon('FT4', i, chunk_idx, start_offset,
+                                    [v0, v1, v2, v3], [n],
+                                    texture_ptr=texture_ptr,
+                                    gpu_offset=gpu_offset, gpu_size=POLY_FT4_SIZE)
 
             offset += PFT4_SIZE
         return offset
 
-    def _parse_gt4_polys(self, offset: int, count: int) -> int:
+    def _parse_gt4_polys(self, offset: int, count: int, chunk_idx: int) -> int:
         """Parse gouraud-shaded textured quads (PGT4)"""
-        for _ in range(count):
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} GT4 (gouraud-shaded textured quad) polygons...")
+
+        for i in range(count):
+            start_offset = offset
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
-            v2 = SVECTOR.from_bytes(self. data, offset + 16)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
             v3 = SVECTOR.from_bytes(self.data, offset + 24)
-            n0 = SVECTOR. from_bytes(self.data, offset + 32)
+            n0 = SVECTOR.from_bytes(self.data, offset + 32)
             n1 = SVECTOR.from_bytes(self.data, offset + 40)
             n2 = SVECTOR.from_bytes(self.data, offset + 48)
-            n3 = SVECTOR.from_bytes(self. data, offset + 56)
+            n3 = SVECTOR.from_bytes(self.data, offset + 56)
             # Skip 4 CVECTORs (16 bytes) and texture pointer (4 bytes)
 
             idx0 = self._add_vertex(v0)
@@ -338,58 +499,32 @@ class AMFParser:
             self.faces.append([idx0, idx1, idx2])
             self.faces.append([idx1, idx3, idx2])
             self.face_normals.append([n_idx0, n_idx1, n_idx2])
-            self.face_normals. append([n_idx1, n_idx3, n_idx2])
+            self.face_normals.append([n_idx1, n_idx3, n_idx2])
+
+            if DEBUG_POLYGONS:
+                colors_offset = start_offset + 8 * SVECTOR_SIZE
+                colors = [CVECTOR.from_bytes(self.data, colors_offset + j * CVECTOR_SIZE)
+                          for j in range(4)]
+                tex_ptr_offset = colors_offset + 4 * CVECTOR_SIZE
+                texture_ptr = struct.unpack_from('<I', self.data, tex_ptr_offset)[0]
+                gpu_offset = tex_ptr_offset + POINTER_SIZE
+                self._debug_polygon('GT4', i, chunk_idx, start_offset,
+                                    [v0, v1, v2, v3], [n0, n1, n2, n3],
+                                    colors=colors, texture_ptr=texture_ptr,
+                                    gpu_offset=gpu_offset, gpu_size=POLY_GT4_SIZE)
 
             offset += PGT4_SIZE
         return offset
 
-    def _parse_f3_polys(self, offset: int, count: int) -> int:
+    def _parse_f3_polys(self, offset: int, count: int, chunk_idx: int) -> int:
         """Parse flat-shaded triangles (PF3)"""
-        for _ in range(count):
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} F3 (flat-shaded triangle) polygons...")
+
+        for i in range(count):
+            start_offset = offset
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
-            v2 = SVECTOR.from_bytes(self. data, offset + 16)
-            n = SVECTOR. from_bytes(self.data, offset + 24)
-
-            idx0 = self._add_vertex(v0)
-            idx1 = self._add_vertex(v1)
-            idx2 = self._add_vertex(v2)
-            n_idx = self._add_normal(n)
-
-            self.faces.append([idx0, idx1, idx2])
-            self.face_normals.append([n_idx, n_idx, n_idx])
-
-            offset += PF3_SIZE
-        return offset
-
-    def _parse_g3_polys(self, offset: int, count: int) -> int:
-        """Parse gouraud-shaded triangles (PG3)"""
-        for _ in range(count):
-            v0 = SVECTOR. from_bytes(self.data, offset)
-            v1 = SVECTOR. from_bytes(self.data, offset + 8)
-            v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            n0 = SVECTOR.from_bytes(self.data, offset + 24)
-            n1 = SVECTOR.from_bytes(self. data, offset + 32)
-            n2 = SVECTOR.from_bytes(self.data, offset + 40)
-
-            idx0 = self._add_vertex(v0)
-            idx1 = self._add_vertex(v1)
-            idx2 = self._add_vertex(v2)
-            n_idx0 = self._add_normal(n0)
-            n_idx1 = self._add_normal(n1)
-            n_idx2 = self._add_normal(n2)
-
-            self.faces.append([idx0, idx1, idx2])
-            self.face_normals.append([n_idx0, n_idx1, n_idx2])
-
-            offset += PG3_SIZE
-        return offset
-
-    def _parse_ft3_polys(self, offset: int, count: int) -> int:
-        """Parse flat-shaded textured triangles (PFT3)"""
-        for _ in range(count):
-            v0 = SVECTOR.from_bytes(self. data, offset)
-            v1 = SVECTOR.from_bytes(self. data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
             n = SVECTOR.from_bytes(self.data, offset + 24)
 
@@ -401,16 +536,26 @@ class AMFParser:
             self.faces.append([idx0, idx1, idx2])
             self.face_normals.append([n_idx, n_idx, n_idx])
 
-            offset += PFT3_SIZE
+            if DEBUG_POLYGONS:
+                gpu_offset = start_offset + 4 * SVECTOR_SIZE
+                self._debug_polygon('F3', i, chunk_idx, start_offset,
+                                    [v0, v1, v2], [n],
+                                    gpu_offset=gpu_offset, gpu_size=POLY_F3_SIZE)
+
+            offset += PF3_SIZE
         return offset
 
-    def _parse_gt3_polys(self, offset:  int, count: int) -> int:
-        """Parse gouraud-shaded textured triangles (PGT3)"""
-        for _ in range(count):
-            v0 = SVECTOR.from_bytes(self. data, offset)
-            v1 = SVECTOR.from_bytes(self. data, offset + 8)
+    def _parse_g3_polys(self, offset: int, count: int, chunk_idx: int) -> int:
+        """Parse gouraud-shaded triangles (PG3)"""
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} G3 (gouraud-shaded triangle) polygons...")
+
+        for i in range(count):
+            start_offset = offset
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            n0 = SVECTOR. from_bytes(self.data, offset + 24)
+            n0 = SVECTOR.from_bytes(self.data, offset + 24)
             n1 = SVECTOR.from_bytes(self.data, offset + 32)
             n2 = SVECTOR.from_bytes(self.data, offset + 40)
 
@@ -423,6 +568,80 @@ class AMFParser:
 
             self.faces.append([idx0, idx1, idx2])
             self.face_normals.append([n_idx0, n_idx1, n_idx2])
+
+            if DEBUG_POLYGONS:
+                gpu_offset = start_offset + 6 * SVECTOR_SIZE
+                self._debug_polygon('G3', i, chunk_idx, start_offset,
+                                    [v0, v1, v2], [n0, n1, n2],
+                                    gpu_offset=gpu_offset, gpu_size=POLY_G3_SIZE)
+
+            offset += PG3_SIZE
+        return offset
+
+    def _parse_ft3_polys(self, offset: int, count: int, chunk_idx: int) -> int:
+        """Parse flat-shaded textured triangles (PFT3)"""
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} FT3 (flat-shaded textured triangle) polygons...")
+
+        for i in range(count):
+            start_offset = offset
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
+            n = SVECTOR.from_bytes(self.data, offset + 24)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            n_idx = self._add_normal(n)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.face_normals.append([n_idx, n_idx, n_idx])
+
+            if DEBUG_POLYGONS:
+                tex_ptr_offset = start_offset + 4 * SVECTOR_SIZE
+                texture_ptr = struct.unpack_from('<I', self.data, tex_ptr_offset)[0]
+                gpu_offset = tex_ptr_offset + POINTER_SIZE
+                self._debug_polygon('FT3', i, chunk_idx, start_offset,
+                                    [v0, v1, v2], [n],
+                                    texture_ptr=texture_ptr,
+                                    gpu_offset=gpu_offset, gpu_size=POLY_FT3_SIZE)
+
+            offset += PFT3_SIZE
+        return offset
+
+    def _parse_gt3_polys(self, offset: int, count: int, chunk_idx: int) -> int:
+        """Parse gouraud-shaded textured triangles (PGT3)"""
+        if DEBUG_POLYGONS and count > 0:
+            print(f"\n  Parsing {count} GT3 (gouraud-shaded textured triangle) polygons...")
+
+        for i in range(count):
+            start_offset = offset
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
+            n0 = SVECTOR.from_bytes(self.data, offset + 24)
+            n1 = SVECTOR.from_bytes(self.data, offset + 32)
+            n2 = SVECTOR.from_bytes(self.data, offset + 40)
+
+            idx0 = self._add_vertex(v0)
+            idx1 = self._add_vertex(v1)
+            idx2 = self._add_vertex(v2)
+            n_idx0 = self._add_normal(n0)
+            n_idx1 = self._add_normal(n1)
+            n_idx2 = self._add_normal(n2)
+
+            self.faces.append([idx0, idx1, idx2])
+            self.face_normals.append([n_idx0, n_idx1, n_idx2])
+
+            if DEBUG_POLYGONS:
+                tex_ptr_offset = start_offset + 6 * SVECTOR_SIZE
+                texture_ptr = struct.unpack_from('<I', self.data, tex_ptr_offset)[0]
+                gpu_offset = tex_ptr_offset + POINTER_SIZE
+                self._debug_polygon('GT3', i, chunk_idx, start_offset,
+                                    [v0, v1, v2], [n0, n1, n2],
+                                    texture_ptr=texture_ptr,
+                                    gpu_offset=gpu_offset, gpu_size=POLY_GT3_SIZE)
 
             offset += PGT3_SIZE
         return offset
@@ -448,7 +667,7 @@ class AMFParser:
             f.write("\n")
 
             # Write faces (with normals)
-            for face, normals in zip(self.faces, self. face_normals):
+            for face, normals in zip(self.faces, self.face_normals):
                 if len(face) == 3 and len(normals) == 3:
                     f.write(f"f {face[0]}//{normals[0]} "
                             f"{face[1]}//{normals[1]} "
@@ -464,17 +683,23 @@ class AMFParser:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} input.amf [output.obj]")
-        print("\nConverts AMF files from UnnamedHB1 PS1 homebrew to OBJ format.")
-        sys.exit(1)
+    global DEBUG_POLYGONS
 
-    input_file = sys.argv[1]
+    parser = argparse.ArgumentParser(
+        description="Converts AMF files from UnnamedHB1 PS1 homebrew to OBJ format."
+    )
+    parser.add_argument('input', help='Input .amf file')
+    parser.add_argument('output', nargs='?', help='Output .obj file (default: input basename + .obj)')
+    parser.add_argument('--debug', action='store_true',
+                        help='Enable verbose hex dump output for each polygon')
+    args = parser.parse_args()
 
-    if len(sys.argv) >= 3:
-        output_file = sys.argv[2]
-    else: 
-        output_file = os.path.splitext(input_file)[0] + ".obj"
+    if args.debug:
+        DEBUG_POLYGONS = True
+        print("Debug mode enabled: verbose polygon output\n")
+
+    input_file = args.input
+    output_file = args.output or os.path.splitext(input_file)[0] + ".obj"
 
     # Read input file
     with open(input_file, 'rb') as f:
@@ -483,10 +708,10 @@ def main():
     print(f"Reading {input_file} ({len(data)} bytes)")
 
     # Parse and convert
-    parser = AMFParser(data)
-    parser.parse()
-    parser.export_obj(output_file)
+    amf_parser = AMFParser(data)
+    amf_parser.parse()
+    amf_parser.export_obj(output_file)
 
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
     main()

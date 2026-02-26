@@ -23,70 +23,7 @@ import base64
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict, Any
 
-
-@dataclass
-class SVECTOR: 
-    """Short vector (8 bytes) - used for vertices and normals"""
-    vx: int  # int16_t
-    vy: int  # int16_t
-    vz:  int  # int16_t
-    pad: int  # int16_t (flags: depth check type, subdiv depth, culling mode)
-
-    @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'SVECTOR': 
-        vx, vy, vz, pad = struct. unpack_from('<hhhh', data, offset)
-        return cls(vx, vy, vz, pad)
-
-    def to_float(self, scale: float = 1.0 / 4096.0) -> Tuple[float, float, float]: 
-        """Convert fixed-point to floating point coordinates"""
-        return (self.vx * scale, self. vy * scale, self.vz * scale)
-
-
-@dataclass
-class CVECTOR:
-    """Color vector (4 bytes)"""
-    r: int  # uint8_t
-    g: int  # uint8_t
-    b: int  # uint8_t
-    cd: int  # uint8_t (code/alpha)
-
-    @classmethod
-    def from_bytes(cls, data: bytes, offset:  int = 0) -> 'CVECTOR':
-        r, g, b, cd = struct.unpack_from('<BBBB', data, offset)
-        return cls(r, g, b, cd)
-
-    def to_float(self) -> Tuple[float, float, float, float]:
-        """Convert to normalized float RGBA"""
-        return (self.r / 255.0, self. g / 255.0, self.b / 255.0, 1.0)
-
-
-@dataclass
-class WorldBounds:
-    """World bounding box (16 bytes)"""
-    minX: int  # int32_t
-    minZ:  int  # int32_t
-    maxX: int  # int32_t
-    maxZ: int  # int32_t
-
-    @classmethod
-    def from_bytes(cls, data: bytes, offset: int = 0) -> 'WorldBounds': 
-        minX, minZ, maxX, maxZ = struct. unpack_from('<iiii', data, offset)
-        return cls(minX, minZ, maxX, maxZ)
-
-
-@dataclass
-class AMFHeader:
-    """AMF file header (24 bytes)"""
-    used_textures: int  # uint32_t (highest bit for Texture* already set)
-    x: int  # uint16_t (chunk count in X)
-    z: int  # uint16_t (chunk count in Z)
-    bounds: WorldBounds
-
-    @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'AMFHeader':
-        used_textures, x, z = struct.unpack_from('<IHH', data, offset)
-        bounds = WorldBounds.from_bytes(data, offset + 8)
-        return cls(used_textures & 0x7FFFFFFF, x, z, bounds)
+from amf_types import SVECTOR, CVECTOR, WorldBounds, AMFHeader
 
 
 @dataclass
@@ -95,14 +32,14 @@ class ChunkHeader:
     F4_amount: int   # uint16_t
     G4_amount: int   # uint16_t
     FT4_amount: int  # uint16_t
-    GT4_amount:  int  # uint16_t
+    GT4_amount: int  # uint16_t
     F3_amount: int   # uint16_t
     G3_amount: int   # uint16_t
     FT3_amount: int  # uint16_t
     GT3_amount: int  # uint16_t
 
     @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'ChunkHeader':
+    def from_bytes(cls, data: bytes, offset: int = 0) -> 'ChunkHeader':
         counts = struct.unpack_from('<HHHHHHHH', data, offset)
         return cls(*counts)
 
@@ -136,9 +73,9 @@ PGT4_SIZE = 4 * SVECTOR_SIZE + 4 * SVECTOR_SIZE + 4 * CVECTOR_SIZE + POINTER_SIZ
 @dataclass
 class ParsedVertex:
     """A vertex with position, normal, and optional color"""
-    position:  Tuple[float, float, float]
+    position: Tuple[float, float, float]
     normal: Tuple[float, float, float]
-    color:  Optional[Tuple[float, float, float, float]] = None
+    color: Optional[Tuple[float, float, float, float]] = None
 
 
 @dataclass
@@ -152,21 +89,21 @@ class AMFParser:
 
     def __init__(self, data: bytes):
         self.data = data
-        self.header:  Optional[AMFHeader] = None
+        self.header: Optional[AMFHeader] = None
         self.texture_names: List[str] = []
         self.vertices: List[Tuple[float, float, float]] = []
         self.normals: List[Tuple[float, float, float]] = []
         self.colors: List[Tuple[float, float, float, float]] = []
         self.faces: List[List[int]] = []  # Each face is a list of vertex indices
         self.face_normals: List[List[int]] = []  # Normal indices per face
-        self. face_colors: List[List[int]] = []  # Color indices per face (optional)
+        self.face_colors: List[List[int]] = []  # Color indices per face (optional)
 
     def parse(self):
         """Parse the AMF file"""
         # Parse header
         self.header = AMFHeader.from_bytes(self.data, 0)
         print(f"AMF Header:")
-        print(f"  Textures: {self. header.used_textures}")
+        print(f"  Textures: {self.header.used_textures}")
         print(f"  Chunks: {self.header.x} x {self.header.z}")
         print(f"  Bounds: ({self.header.bounds.minX}, {self.header.bounds.minZ}) to "
               f"({self.header.bounds.maxX}, {self.header.bounds.maxZ})")
@@ -191,7 +128,7 @@ class AMFParser:
         for chunk_idx in range(chunk_count):
             self._parse_chunk(chunk_idx, chunk_data_offset)
             # Calculate offset for next chunk based on current chunk's content
-            chunk_header = ChunkHeader.from_bytes(self. data, chunk_data_offset)
+            chunk_header = ChunkHeader.from_bytes(self.data, chunk_data_offset)
             chunk_size = 16 + 32  # header (16) + 8 pointers (32)
             chunk_size += chunk_header. F4_amount * PF4_SIZE
             chunk_size += chunk_header.G4_amount * PG4_SIZE
@@ -234,20 +171,20 @@ class AMFParser:
     def _add_normal(self, sv: SVECTOR) -> int:
         """Add a normal and return its 0-based index"""
         self.normals. append(sv.to_float())
-        return len(self. normals) - 1
+        return len(self.normals) - 1
 
     def _add_color(self, cv: CVECTOR) -> int:
         """Add a color and return its 0-based index"""
         self.colors.append(cv. to_float())
         return len(self.colors) - 1
 
-    def _parse_f4_polys(self, offset: int, count:  int) -> int:
+    def _parse_f4_polys(self, offset: int, count: int) -> int:
         """Parse flat-shaded quads (PF4)"""
         for _ in range(count):
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n = SVECTOR.from_bytes(self.data, offset + 32)
 
             idx0 = self._add_vertex(v0)
@@ -273,14 +210,14 @@ class AMFParser:
     def _parse_g4_polys(self, offset: int, count: int) -> int:
         """Parse gouraud-shaded quads (PG4)"""
         for _ in range(count):
-            v0 = SVECTOR.from_bytes(self. data, offset)
-            v1 = SVECTOR.from_bytes(self. data, offset + 8)
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
             v3 = SVECTOR. from_bytes(self.data, offset + 24)
             n0 = SVECTOR.from_bytes(self.data, offset + 32)
-            n1 = SVECTOR.from_bytes(self. data, offset + 40)
+            n1 = SVECTOR.from_bytes(self.data, offset + 40)
             n2 = SVECTOR.from_bytes(self.data, offset + 48)
-            n3 = SVECTOR.from_bytes(self. data, offset + 56)
+            n3 = SVECTOR.from_bytes(self.data, offset + 56)
 
             idx0 = self._add_vertex(v0)
             idx1 = self._add_vertex(v1)
@@ -291,7 +228,7 @@ class AMFParser:
             n_idx2 = self._add_normal(n2)
             n_idx3 = self._add_normal(n3)
 
-            self. faces.append([idx0, idx1, idx2])
+            self.faces.append([idx0, idx1, idx2])
             self.faces.append([idx1, idx3, idx2])
             self.face_normals.append([n_idx0, n_idx1, n_idx2])
             self.face_normals. append([n_idx1, n_idx3, n_idx2])
@@ -305,7 +242,7 @@ class AMFParser:
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            v3 = SVECTOR.from_bytes(self. data, offset + 24)
+            v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n = SVECTOR.from_bytes(self.data, offset + 32)
 
             idx0 = self._add_vertex(v0)
@@ -331,16 +268,16 @@ class AMFParser:
         for _ in range(count):
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
-            v2 = SVECTOR.from_bytes(self. data, offset + 16)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
             v3 = SVECTOR.from_bytes(self.data, offset + 24)
             n0 = SVECTOR. from_bytes(self.data, offset + 32)
             n1 = SVECTOR.from_bytes(self.data, offset + 40)
             n2 = SVECTOR.from_bytes(self.data, offset + 48)
-            n3 = SVECTOR.from_bytes(self. data, offset + 56)
+            n3 = SVECTOR.from_bytes(self.data, offset + 56)
             c0 = CVECTOR.from_bytes(self.data, offset + 64)
             c1 = CVECTOR. from_bytes(self.data, offset + 68)
             c2 = CVECTOR.from_bytes(self.data, offset + 72)
-            c3 = CVECTOR.from_bytes(self. data, offset + 76)
+            c3 = CVECTOR.from_bytes(self.data, offset + 76)
 
             idx0 = self._add_vertex(v0)
             idx1 = self._add_vertex(v1)
@@ -365,11 +302,11 @@ class AMFParser:
             offset += PGT4_SIZE
         return offset
 
-    def _parse_f3_polys(self, offset:  int, count: int) -> int:
+    def _parse_f3_polys(self, offset: int, count: int) -> int:
         """Parse flat-shaded triangles (PF3)"""
         for _ in range(count):
-            v0 = SVECTOR.from_bytes(self. data, offset)
-            v1 = SVECTOR.from_bytes(self. data, offset + 8)
+            v0 = SVECTOR.from_bytes(self.data, offset)
+            v1 = SVECTOR.from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
             n = SVECTOR.from_bytes(self.data, offset + 24)
 
@@ -394,7 +331,7 @@ class AMFParser:
             v1 = SVECTOR. from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
             n0 = SVECTOR.from_bytes(self.data, offset + 24)
-            n1 = SVECTOR.from_bytes(self. data, offset + 32)
+            n1 = SVECTOR.from_bytes(self.data, offset + 32)
             n2 = SVECTOR.from_bytes(self.data, offset + 40)
 
             idx0 = self._add_vertex(v0)
@@ -416,7 +353,7 @@ class AMFParser:
             v0 = SVECTOR. from_bytes(self.data, offset)
             v1 = SVECTOR. from_bytes(self.data, offset + 8)
             v2 = SVECTOR.from_bytes(self.data, offset + 16)
-            n = SVECTOR.from_bytes(self. data, offset + 24)
+            n = SVECTOR.from_bytes(self.data, offset + 24)
 
             idx0 = self._add_vertex(v0)
             idx1 = self._add_vertex(v1)
@@ -437,7 +374,7 @@ class AMFParser:
         for _ in range(count):
             v0 = SVECTOR.from_bytes(self.data, offset)
             v1 = SVECTOR.from_bytes(self.data, offset + 8)
-            v2 = SVECTOR.from_bytes(self. data, offset + 16)
+            v2 = SVECTOR.from_bytes(self.data, offset + 16)
             n0 = SVECTOR.from_bytes(self.data, offset + 24)
             n1 = SVECTOR. from_bytes(self.data, offset + 32)
             n2 = SVECTOR.from_bytes(self.data, offset + 40)
@@ -502,7 +439,7 @@ class AMFParser:
         index_bytes = struct.pack(f'<{len(indices)}I', *indices)
 
         # Pad to 4-byte alignment
-        def pad_to_4(data:  bytes) -> bytes:
+        def pad_to_4(data: bytes) -> bytes:
             padding = (4 - len(data) % 4) % 4
             return data + b'\x00' * padding
 
@@ -626,7 +563,7 @@ class AMFParser:
             face_normal_indices = self.face_normals[face_idx] if face_idx < len(self.face_normals) else [0, 0, 0]
 
             for i, v_idx in enumerate(face):
-                pos = self. vertices[v_idx]
+                pos = self.vertices[v_idx]
                 positions. extend(pos)
 
                 n_idx = face_normal_indices[i] if i < len(face_normal_indices) else 0

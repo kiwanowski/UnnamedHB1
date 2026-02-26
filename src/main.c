@@ -26,7 +26,6 @@
 
 /* Main */
 extern AMF room_amf;
-extern AMF cyl_amf;
 
 char pad_buff[2][34];
 
@@ -104,8 +103,6 @@ int main(int argc, const char **argv) {
 	PADTYPE* mouse;
 	uint16_t buttons;
 	uint16_t last_buttons = 0;
-
-	char str[50];
 
 	Node* room = new_node(&room_amf, NULL);
 	// Node* cyl = new_node(&cyl_amf, NULL);
