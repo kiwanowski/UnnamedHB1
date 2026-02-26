@@ -9,7 +9,7 @@ extern SFX ding_sfx;
 
 static Pellet pellets[30];
 static uint8_t collected = 0;
-uint8_t max_pelletes;
+uint8_t max_pellets;
 
 // x * y map size (23*29)
 static uint8_t map[23*29] = {
@@ -50,11 +50,11 @@ extern uint8_t curr_level;
 
 void initPellets(uint8_t level) {
     collected = 0;
-    max_pelletes = 30;
-    if (level < 3) max_pelletes = 15;
-    else if (level < 5) max_pelletes = 20;
-    else if (level < 8) max_pelletes = 25;
-    for (int i = 0; i < max_pelletes; ++i) {
+    max_pellets = 30;
+    if (level < 3) max_pellets = 15;
+    else if (level < 5) max_pellets = 20;
+    else if (level < 8) max_pellets = 25;
+    for (int i = 0; i < max_pellets; ++i) {
         int rand = get_random() % (23*29);
         while (map[rand] != 1) {
             add_entropy(1);
@@ -81,7 +81,7 @@ int checkPlayerCollect(Player* player) {
     int32_t minx;
     int32_t minz;
     int32_t mind = INT32_MAX;
-    for (int i = 0; i < max_pelletes; ++i) {
+    for (int i = 0; i < max_pellets; ++i) {
         Pellet* pellet = &pellets[i];
         if (!pellet->alive) continue;
         int32_t x = pposx - pellet->position.vx;
@@ -124,13 +124,13 @@ int checkPlayerCollect(Player* player) {
         play_sample_stereo(ding_sfx.addr, ding_sfx.sample_rate, l, r);
     }
 
-    if (collected < max_pelletes) return collected;
+    if (collected < max_pellets) return collected;
     return -1;
 }
 
 
 void drawPellets(MATRIX* INVCAM) {
-    for (int i = 0; i < max_pelletes; ++i) {
+    for (int i = 0; i < max_pellets; ++i) {
         Pellet* pellet = &pellets[i];
         if (!pellet->alive || !pellet->visible) continue;
         set_rot_vec(pellet->model, &pellet->rotation);

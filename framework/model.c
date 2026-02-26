@@ -359,8 +359,10 @@ void drawWorld(AMF* model, RenderContext* ctx, Player* player) {
             if (!(lsign+rsign) && lsign < 0 && (x*x+z*z) < 40) {
                 chunks[chunkamount] = x+cx + ((z+cz)*model->info.x);
                 chunkamount++;
+                if (chunkamount >= 96) break;
             }
         }
+        if (chunkamount >= 96) break;
     }
 
     TIME_FUNCTION_ACC_P("SUBDIV", 11);
@@ -868,7 +870,7 @@ void subdivideFT3(POLY_FT3* pol, SVECTOR* verts, uint8_t level, RenderContext* c
             spol->v0 = pol->v0; spol->v1 = xvs[0]; spol->v2 = xvs[1];
         }   break;
         case 1: {
-            sub_verts[0] = vs[0]; sub_verts[1] = sub_verts[1]; sub_verts[2] = vs[2];
+            sub_verts[0] = vs[0]; sub_verts[1] = verts[1]; sub_verts[2] = vs[2];
             spol->u0 = uxs[0]; spol->u1 = pol->u1; spol->u2 = uxs[2];
             spol->v0 = xvs[0]; spol->v1 = pol->v1; spol->v2 = xvs[2];
         }   break;

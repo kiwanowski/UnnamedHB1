@@ -5,7 +5,7 @@
 extern unsigned char test_acf_data[];
 CollisionMesh test_col;
 
-#define abs(a) (a < 0) ? (-a) : (a)
+#define abs(a) (((a) ^ ((a)>>31)) - ((a)>>31))
 
 void initCollisions() {
     colInitData(&test_col, test_acf_data);
@@ -195,12 +195,17 @@ unsigned char test_collide(CollisionMesh* col, VECTOR* pos, VECTOR* velocity, in
     }
 
     if (*pamount > 0) {
-        pclosest->vx /= *pamount;
-        pclosest->vy /= *pamount;
-        pclosest->vz /= *pamount;
-        cnorm->vx /= *pamount;
-        cnorm->vy /= *pamount;
-        cnorm->vz /= *pamount;
+        if (*pamount == 2) {
+            pclosest->vx >>= 1; pclosest->vy >>= 1; pclosest->vz >>= 1;
+            cnorm->vx >>= 1; cnorm->vy >>= 1; cnorm->vz >>= 1;
+        } else if (*pamount > 2) {
+            pclosest->vx /= *pamount;
+            pclosest->vy /= *pamount;
+            pclosest->vz /= *pamount;
+            cnorm->vx /= *pamount;
+            cnorm->vy /= *pamount;
+            cnorm->vz /= *pamount;
+        }
         int32_t x_dist = pclosest->vx-lpos->vx;
         int32_t y_dist = pclosest->vy-lpos->vy;
         int32_t z_dist = pclosest->vz-lpos->vz;

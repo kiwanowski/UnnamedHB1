@@ -22,6 +22,6 @@ int checkPlayerCollect(Player* player);
 
 void drawPellets(MATRIX* INVCAM);
 
-extern uint8_t max_pelletes;
+extern uint8_t max_pellets;
 
 #endif // PELLET_H
