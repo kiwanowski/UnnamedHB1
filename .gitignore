@@ -1,3 +1,5 @@
 build/
 .vscode/
 *.png
+__pycache__/
+*.pyc
