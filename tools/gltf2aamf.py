@@ -95,16 +95,14 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict, Any
 
+from amf_types import SVECTOR_SIZE, CVECTOR_SIZE, FIXED_POINT_SCALE, PG4_SIZE
+
 
 # ============================================================================
 # Constants
 # ============================================================================
 
-FIXED_POINT_SCALE = 4096.0  # 4.12 fixed-point for PS1 GTE
-
 # Struct sizes matching the C code exactly
-SVECTOR_SIZE = 8   # int16 vx, vy, vz, pad
-CVECTOR_SIZE = 4   # uint8 r, g, b, cd
 MATRIX_SIZE = 32   # 3x3 int16 rotation + pad + 3 int32 translation
 
 # Polygon struct sizes (including the POLY_* with tag)
@@ -113,7 +111,6 @@ PF4_SIZE = 64
 PFT3_SIZE = 68
 PFT4_SIZE = 84
 PG3_SIZE = 76
-PG4_SIZE = 100
 PGT3_SIZE = 92
 PGT4_SIZE = 136
 

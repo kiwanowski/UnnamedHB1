@@ -28,44 +28,7 @@ from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict, Any, Set
 from collections import defaultdict
 
-
-# Structure sizes
-SVECTOR_SIZE = 8
-CVECTOR_SIZE = 4
-POINTER_SIZE = 4
-
-# POLY_G4 GPU primitive size (with 4-byte tag included)
-POLY_G4_SIZE = 4 + 32  # tag + 4*(color + xy) = 36
-
-# PG4 structure size:  4 vertices + 4 normals + POLY_G4
-PG4_SIZE = 4 * SVECTOR_SIZE + 4 * SVECTOR_SIZE + POLY_G4_SIZE  # 100
-
-# Fixed-point scale (PS1 uses 12-bit fractional part)
-FIXED_POINT_SCALE = 4096.0
-
-
-@dataclass
-class SVECTOR:
-    """Short vector (8 bytes) - used for vertices and normals"""
-    vx: int  # int16_t
-    vy: int  # int16_t
-    vz: int  # int16_t
-    pad: int  # int16_t (flags)
-
-    def to_bytes(self) -> bytes:
-        return struct.pack('<hhhh', self.vx, self.vy, self.vz, self.pad)
-
-    @classmethod
-    def from_float(cls, x: float, y:  float, z: float, scale: float, pad: int = 0) -> 'SVECTOR':
-        """Convert floating point coordinates to fixed-point"""
-        vx = int(round(x * scale))
-        vy = int(round(y * scale))
-        vz = int(round(z * scale))
-        # Clamp to int16 range
-        vx = max(-32768, min(32767, vx))
-        vy = max(-32768, min(32767, vy))
-        vz = max(-32768, min(32767, vz))
-        return cls(vx, vy, vz, pad)
+from amf_types import SVECTOR, SVECTOR_SIZE, CVECTOR_SIZE, POINTER_SIZE, FIXED_POINT_SCALE, POLY_G4_SIZE, PG4_SIZE
 
 
 @dataclass
@@ -115,12 +78,12 @@ class Quad:
     v3: int
 
 
-class GLTFParser: 
+class GLTFParser:
     """Parser for glTF/GLB files"""
 
     def __init__(self, filepath: str):
         self.filepath = filepath
-        self.gltf:  Dict[str, Any] = {}
+        self.gltf: Dict[str, Any] = {}
         self.binary_data: bytes = b''
         self.vertices: List[Vertex] = []
         self.triangles: List[Triangle] = []
@@ -129,7 +92,7 @@ class GLTFParser:
         """Parse the glTF or GLB file"""
         if self.filepath.lower().endswith('.glb'):
             self._parse_glb()
-        else: 
+        else:
             self._parse_gltf()
 
         self._extract_mesh_data()
@@ -166,7 +129,7 @@ class GLTFParser:
 
         # Load binary buffer if referenced
         if 'buffers' in self.gltf:
-            for buffer in self.gltf['buffers']: 
+            for buffer in self.gltf['buffers']:
                 if 'uri' in buffer:
                     uri = buffer['uri']
                     if uri.startswith('data:'):
@@ -235,8 +198,8 @@ class GLTFParser:
         mesh = self.gltf['meshes'][0]
 
         for primitive in mesh['primitives']:
-            if primitive. get('mode', 4) != 4:  # Only triangles
-                print(f"Warning:  Skipping non-triangle primitive (mode={primitive.get('mode', 4)})")
+            if primitive.get('mode', 4) != 4:  # Only triangles
+                print(f"Warning: Skipping non-triangle primitive (mode={primitive.get('mode', 4)})")
                 continue
 
             # Get position data
@@ -256,7 +219,7 @@ class GLTFParser:
                 self.vertices.append(Vertex(position=pos, normal=norm))
 
             # Get indices
-            if 'indices' in primitive: 
+            if 'indices' in primitive:
                 idx_accessor_idx = primitive['indices']
                 indices = self._get_accessor_data(idx_accessor_idx)
             else:
@@ -275,20 +238,20 @@ class GLTFParser:
         print(f"Loaded {len(self.vertices)} vertices and {len(self.triangles)} triangles")
 
 
-class TriangleToQuadMerger: 
+class TriangleToQuadMerger:
     """Merges triangles into quads based on shared edge positions"""
 
     def __init__(self, vertices: List[Vertex], triangles: List[Triangle]):
         self.vertices = vertices
         self.triangles = triangles
         self.quads: List[Quad] = []
-        self.remaining_triangles:  List[Triangle] = []
+        self.remaining_triangles: List[Triangle] = []
 
-    def _get_position_key(self, vertex_idx: int) -> Tuple[int, ... ]:
+    def _get_position_key(self, vertex_idx: int) -> Tuple[int, ...]:
         """Get position key for a vertex"""
         return self.vertices[vertex_idx].position_key()
 
-    def _get_edge_key(self, v1_idx: int, v2_idx: int) -> Tuple[Tuple[int, ... ], Tuple[int, ...]]:
+    def _get_edge_key(self, v1_idx: int, v2_idx: int) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
         """Get a canonical edge key based on positions (sorted)"""
         k1 = self._get_position_key(v1_idx)
         k2 = self._get_position_key(v2_idx)
@@ -299,19 +262,19 @@ class TriangleToQuadMerger:
         # Build edge (by position) to triangle map
         edge_to_triangles: Dict[Any, List[Tuple[int, int]]] = defaultdict(list)
 
-        for tri_idx, tri in enumerate(self. triangles):
+        for tri_idx, tri in enumerate(self.triangles):
             for edge_idx in range(3):
                 v1_idx, v2_idx = tri.get_edge(edge_idx)
                 edge_key = self._get_edge_key(v1_idx, v2_idx)
                 edge_to_triangles[edge_key].append((tri_idx, edge_idx))
 
-        # Debug:  print edge sharing info
+        # Debug: print edge sharing info
         shared_edges = {k: v for k, v in edge_to_triangles.items() if len(v) >= 2}
         print(f"Found {len(shared_edges)} shared edges between triangles")
 
         # Find pairs of triangles sharing an edge
-        for tri_idx, tri in enumerate(self. triangles):
-            if tri. used:
+        for tri_idx, tri in enumerate(self.triangles):
+            if tri.used:
                 continue
 
             best_match = None
@@ -321,7 +284,7 @@ class TriangleToQuadMerger:
                 v1_idx, v2_idx = tri.get_edge(edge_idx)
                 edge_key = self._get_edge_key(v1_idx, v2_idx)
 
-                for other_tri_idx, other_edge_idx in edge_to_triangles[edge_key]: 
+                for other_tri_idx, other_edge_idx in edge_to_triangles[edge_key]:
                     if other_tri_idx == tri_idx:
                         continue
 
@@ -332,7 +295,7 @@ class TriangleToQuadMerger:
                     # Calculate planarity score (lower is better)
                     score = self._calculate_planarity_score(tri, other_tri, edge_idx, other_edge_idx)
 
-                    if score < best_score: 
+                    if score < best_score:
                         best_score = score
                         best_match = (other_tri_idx, edge_idx, other_edge_idx)
 
@@ -386,7 +349,7 @@ class TriangleToQuadMerger:
 
         return 1.0 - dot
 
-    def _subtract(self, a:  Tuple[float, ... ], b: Tuple[float, ...]) -> Tuple[float, ...]:
+    def _subtract(self, a: Tuple[float, ...], b: Tuple[float, ...]) -> Tuple[float, ...]:
         return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
     def _cross_product(self, a: Tuple[float, ...], b: Tuple[float, ...]) -> Tuple[float, ...]: 
@@ -402,7 +365,7 @@ class TriangleToQuadMerger:
             return None
         return (v[0] / length, v[1] / length, v[2] / length)
 
-    def _create_quad(self, tri1:  Triangle, tri2: Triangle,
+    def _create_quad(self, tri1: Triangle, tri2: Triangle,
                  edge_idx1: int, edge_idx2: int) -> Quad: 
         """Create a quad from two triangles sharing an edge
 
@@ -439,7 +402,7 @@ class TriangleToQuadMerger:
         # v0 -> v1 (top edge, left to right)
         # v0 -> v2 (left edge, top to bottom)
         # The triangle winding is v0 -> next_vert -> prev_vert
-        # So:  v1 = prev_vert (diagonal goes v1 -> v2)
+        # So: v1 = prev_vert (diagonal goes v1 -> v2)
         #     v2 = next_vert
         v1_idx = prev_vert
         v2_idx = next_vert
@@ -450,7 +413,7 @@ class TriangleToQuadMerger:
 class AMFWriter:
     """Writer for AMF files with G4 polygon support"""
 
-    def __init__(self, vertices:  List[Vertex], quads: List[Quad]):
+    def __init__(self, vertices: List[Vertex], quads: List[Quad]):
         self.vertices = vertices
         self.quads = quads
 
@@ -535,12 +498,12 @@ class AMFWriter:
         v3 = self.vertices[quad.v3]
 
         # Write 4 vertices
-        for v in [v0, v1, v2, v3]: 
-            sv = SVECTOR.from_float(v.position[0], v.position[1], v. position[2], scale=64.0)
+        for v in [v0, v1, v2, v3]:
+            sv = SVECTOR.from_float(v.position[0], v.position[1], v.position[2], scale=64.0)
             f.write(sv.to_bytes())
 
         # Write 4 normals
-        for v in [v0, v1, v2, v3]: 
+        for v in [v0, v1, v2, v3]:
             # Normals use different scale (unit vectors)
             sn = SVECTOR.from_float(v.normal[0], v.normal[1], v.normal[2], scale=2048.0)
             f.write(sn.to_bytes())
@@ -553,7 +516,7 @@ class AMFWriter:
         tag = (8 << 24) | 0x38  # len=8 words, code for POLY_G4
         f.write(struct.pack('<I', tag))
 
-        # 4 vertex entries:  color (r,g,b,code) + xy coordinates
+        # 4 vertex entries: color (r,g,b,code) + xy coordinates
         for i, v in enumerate([v0, v1, v2, v3]):
             # Color (default to white/gray)
             r, g, b = 128, 128, 128
@@ -578,7 +541,7 @@ def main():
 
     if len(sys.argv) >= 3:
         output_file = sys.argv[2]
-    else: 
+    else:
         output_file = os.path.splitext(input_file)[0] + ".amf"
 
     print(f"Reading {input_file}")
@@ -594,7 +557,7 @@ def main():
     if remaining:
         print(f"Warning: {len(remaining)} triangles could not be merged into quads and will be discarded")
 
-    if not quads: 
+    if not quads:
         print("Error: No quads could be created from the input mesh")
         sys.exit(1)
 
@@ -603,5 +566,5 @@ def main():
     writer.write(output_file)
 
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
     main()

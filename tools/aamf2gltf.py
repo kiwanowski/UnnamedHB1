@@ -24,52 +24,18 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict, Any
 
+from amf_types import SVECTOR, CVECTOR, WorldBounds, AMFHeader
+
 
 # ============================================================================
 # Data Structures from PSn00bSDK and UnnamedHB1
 # ============================================================================
 
 @dataclass
-class SVECTOR:
-    """Short vector (8 bytes) - used for vertices and normals"""
-    vx: int  # int16_t
-    vy: int  # int16_t
-    vz: int  # int16_t
-    pad: int  # int16_t
-
-    @classmethod
-    def from_bytes(cls, data: bytes, offset: int = 0) -> 'SVECTOR': 
-        vx, vy, vz, pad = struct. unpack_from('<hhhh', data, offset)
-        return cls(vx, vy, vz, pad)
-
-    def to_float(self, scale: float = 1.0 / 4096.0) -> Tuple[float, float, float]:
-        """Convert fixed-point to floating point coordinates"""
-        return (self.vx * scale, self. vy * scale, self.vz * scale)
-
-
-@dataclass
-class CVECTOR:
-    """Color vector (4 bytes)"""
-    r:  int  # uint8_t
-    g: int  # uint8_t
-    b: int  # uint8_t
-    cd: int  # uint8_t
-
-    @classmethod
-    def from_bytes(cls, data: bytes, offset: int = 0) -> 'CVECTOR': 
-        r, g, b, cd = struct.unpack_from('<BBBB', data, offset)
-        return cls(r, g, b, cd)
-
-    def to_float(self) -> Tuple[float, float, float, float]:
-        """Convert to normalized float RGBA"""
-        return (self.r / 255.0, self. g / 255.0, self.b / 255.0, 1.0)
-
-
-@dataclass
 class MATRIX:
     """
     PS1 GTE Matrix (32 bytes)
-    - m[3][3]:  3x3 rotation matrix (int16_t, 4. 12 fixed-point)
+    - m[3][3]:  3x3 rotation matrix (int16_t, 4.12 fixed-point)
     - t[3]: translation vector (int32_t)
     """
     m: List[List[int]]  # 3x3 rotation matrix
@@ -83,7 +49,7 @@ class MATRIX:
             row_vals = []
             for col in range(3):
                 val = struct.unpack_from('<h', data, offset + (row * 3 + col) * 2)[0]
-                row_vals. append(val)
+                row_vals.append(val)
             m.append(row_vals)
 
         # Read translation vector (3 int32_t = 12 bytes) - starts at offset 20 (with 2 bytes padding after matrix)
@@ -93,7 +59,7 @@ class MATRIX:
 
     def to_rotation_matrix(self) -> List[List[float]]:
         """Convert fixed-point rotation to float matrix"""
-        scale = 1.0 / 4096.0  # 4. 12 fixed-point
+        scale = 1.0 / 4096.0  # 4.12 fixed-point
         return [[self.m[row][col] * scale for col in range(3)] for row in range(3)]
 
     def to_translation(self, scale: float = 1.0 / 4096.0) -> Tuple[float, float, float]:
@@ -149,7 +115,7 @@ class Keyframe:
     mat: MATRIX
 
     @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'Keyframe':
+    def from_bytes(cls, data: bytes, offset: int = 0) -> 'Keyframe':
         mat = MATRIX.from_bytes(data, offset)
         return cls(mat)
 
@@ -163,7 +129,7 @@ class Animation:
     keyframes:  List[List[Keyframe]]
 
     @classmethod
-    def from_bytes(cls, data:  bytes, offset: int, bone_count: int) -> 'Animation': 
+    def from_bytes(cls, data: bytes, offset: int, bone_count: int) -> 'Animation': 
         # Read animation header
         name_bytes = data[offset: offset + 8]
         name = name_bytes.rstrip(b'\x00').decode('ascii', errors='replace')
@@ -188,35 +154,6 @@ class Animation:
 
 
 @dataclass
-class WorldBounds:
-    """World bounding box (16 bytes)"""
-    minX: int
-    minZ: int
-    maxX: int
-    maxZ: int
-
-    @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'WorldBounds':
-        minX, minZ, maxX, maxZ = struct.unpack_from('<iiii', data, offset)
-        return cls(minX, minZ, maxX, maxZ)
-
-
-@dataclass
-class AMFHeader:
-    """AMF file header"""
-    used_textures: int
-    x:  int  # chunk count X
-    z: int  # chunk count Z
-    bounds: WorldBounds
-
-    @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'AMFHeader':
-        used_textures, x, z = struct.unpack_from('<IHH', data, offset)
-        bounds = WorldBounds.from_bytes(data, offset + 8)
-        return cls(used_textures & 0x7FFFFFFF, x, z, bounds)
-
-
-@dataclass
 class ChunkHeader:
     """Chunk header with polygon counts (16 bytes for counts + 32 bytes for 8 pointers)"""
     F4_amount: int
@@ -225,11 +162,11 @@ class ChunkHeader:
     GT4_amount: int
     F3_amount: int
     G3_amount: int
-    FT3_amount:  int
+    FT3_amount: int
     GT3_amount: int
 
     @classmethod
-    def from_bytes(cls, data:  bytes, offset: int = 0) -> 'ChunkHeader':
+    def from_bytes(cls, data: bytes, offset: int = 0) -> 'ChunkHeader':
         counts = struct.unpack_from('<HHHHHHHH', data, offset)
         return cls(*counts)
 
@@ -628,7 +565,7 @@ class AAMFParser:
     def parse(self):
         """Parse the AAMF file"""
         # Parse header
-        self. bone_count = struct. unpack_from('<H', self.data, 0)[0]
+        self. bone_count = struct.unpack_from('<H', self.data, 0)[0]
         self.anim_count = struct.unpack_from('<H', self. data, 2)[0]
 
         print(f"AAMF Header:")
@@ -687,7 +624,7 @@ class AAMFParser:
 
         # Parse animations
         for i in range(self. anim_count):
-            block_size = struct. unpack_from('<I', self.data, data_start + offset)[0]
+            block_size = struct.unpack_from('<I', self.data, data_start + offset)[0]
             anim_offset = data_start + offset + 4
 
             print(f"\nParsing animation {i} at offset {anim_offset} (block size: {block_size})")
@@ -757,7 +694,7 @@ class AAMFParser:
         joints_bytes = struct. pack(f'<{len(all_joints)}H', *all_joints)
         weights_bytes = struct. pack(f'<{len(all_weights)}f', *all_weights)
 
-        def pad_to_4(data:  bytes) -> bytes:
+        def pad_to_4(data: bytes) -> bytes:
             padding = (4 - len(data) % 4) % 4
             return data + b'\x00' * padding
 
