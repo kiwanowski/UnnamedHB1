@@ -45,18 +45,28 @@ void reset_game(Player* player, uint8_t level);
 
 int main(int argc, const char **argv) {
 
+	#ifdef DEBUG
 	printf("START\n");
+	#endif
 
 	initDisplay();
+	#ifdef DEBUG
 	printf("DISP\n");
+	#endif
 	initSFX();
+	#ifdef DEBUG
 	printf("SFX\n");
+	#endif
 	initImages();
+	#ifdef DEBUG
 	printf("IMG\n");
+	#endif
 	checkTextures();
+	#ifdef DEBUG
 	printf("TEX\n");
 
 	printf("POST_INIT\n");
+	#endif
 
 	// Init BIOS pad driver and set pad buffers (buffers are updated
 	// automatically on every V-Blank)
@@ -68,14 +78,18 @@ int main(int argc, const char **argv) {
 	// Don't make pad driver acknowledge V-Blank IRQ (recommended)
 	ChangeClearPAD(0);
 
+	#ifdef DEBUG
 	printf("POST_PAD\n");
 
 	printf("MENUS\n");
+	#endif
 	init_mainMenu();
 	init_pauseMenu();
 	init_gameUI();
 
+	#ifdef DEBUG
 	printf("X_X\n");
+	#endif
 
 	initModels();
 	initAnimatedModels();
@@ -113,7 +127,9 @@ int main(int argc, const char **argv) {
 
 	play_background();
 
+	#ifdef DEBUG
 	printf("LOOP_START\n");
+	#endif
 	for (;;) {
 
 		TIME_FUNCTION_S(15);
@@ -200,7 +216,7 @@ int main(int argc, const char **argv) {
 				reset_game(&player, curr_level);
 			}
 
-			handle_gameUI(collected, max_pelletes, player.stun_ammo, score);
+			handle_gameUI(collected, max_pellets, player.stun_ammo, score);
 			// draw_debug_info();
 
 			int32_t time = 0;
